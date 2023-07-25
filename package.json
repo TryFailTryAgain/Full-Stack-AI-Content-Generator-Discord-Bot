@@ -4,6 +4,7 @@
   "description": "https://github.com/TryFailTryAgain/Full-Stack-AI-Meme-Generator-Discord-Bot",
   "main": "index.js",
   "dependencies": {
+    "bad-words": "^3.0.4",
     "busboy": "^1.6.0",
     "discord-api-types": "^0.37.50",
     "discord.js": "^14.11.0",
@@ -11,6 +12,7 @@
     "file-type": "^18.5.0",
     "ieee754": "^1.2.1",
     "inherits": "^2.0.4",
+    "ini": "^4.1.1",
     "lodash": "^4.17.21",
     "lodash.snakecase": "^4.1.1",
     "peek-readable": "^5.0.0",
@@ -32,6 +34,5 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
-  "devDependencies": {}
+  "license": "ISC"
 }

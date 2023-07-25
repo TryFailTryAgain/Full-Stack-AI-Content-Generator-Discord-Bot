@@ -11,12 +11,13 @@
 - Allows customization of the meme generation process through various settings.
 - Generates memes with a user-provided subject or concept, or you can let the AI decide.
 - Logs meme generation details for future reference.
-- Discord integration with two /slash commands for automatic or promted memes
+- Discord integration with two /slash commands for automatic or prompted memes
+- Optional profanity filter built in
 
 ## Current Discord bot /slash commands
 
-- /automeme  This with generate a completly random meme on request and post it in the chat where the command was called
-- /automeme_about  This has a required promot field that a user enters their prompt idea/concept/instructions
+- /automeme  This with generate a completely random meme on request and post it in the chat where the command was called
+- /automeme_about  This has a required prompt field that a user enters their prompt idea/concept/instructions
 
 ## Usage instructions
 
@@ -45,6 +46,7 @@ Various settings for the meme generation process can be customized:
 - Image platform settings: Choose the platform for generating the meme image. Options include OpenAI's DALLE2, StabilityAI's DreamStudio, and ClipDrop.
 - Basic Meme Instructions: You can tell the AI about the general style or qualities to apply to all memes, such as using dark humor, surreal humor, wholesome, etc. 
 - Special Image Instructions: You can tell the AI how to generate the image itself (more specifically,  how to write the image prompt). You can specify a style such as being a photograph, drawing, etc, or something more specific such as always using cats in the pictures.
+- Profanity filter can be enabled/disabled
 
 ## Example Image Output With Log
 <p align="center"><img src="https://github.com/ThioJoe/Full-Stack-AI-Meme-Generator/assets/12518330/6400c973-f7af-45ed-a6ad-c062c2be0b64" width="400"></p>

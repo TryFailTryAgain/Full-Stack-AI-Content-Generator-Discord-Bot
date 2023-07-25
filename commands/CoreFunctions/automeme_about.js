@@ -2,9 +2,25 @@
 // Author: TryFailTryAgain
 // Copyright (c) 2023. All rights reserved. For use in Open-Source projects this
 // may be freely copied or excerpted with credit to the author.
+
 const { SlashCommandBuilder } = require('discord.js');
 const { spawn } = require('child_process');
 const fs = require('fs');
+const ini = require('ini');
+//parse the settings.ini file to get the value of Filter_Naughty_Words
+const config = ini.parse(fs.readFileSync('settings.ini', 'utf-8'));
+const inputFilter = Boolean(config.Advanced.Filter_Naughty_Words);
+// This is a profanity filter that will prevent the bot from passing profanity and other rude words to the generator
+// It can be enabled or disabled in the config.json file
+var Filter = require('bad-words'),
+    filter = new Filter();
+
+//Alert console if the profanity filter is enabled or disabled
+if (inputFilter == true) {
+    console.log("The profanity filter is enabled");
+} else {
+    console.log("The profanity filter is disabled");
+}
 
 module.exports = {
     cooldown: 15,
@@ -20,11 +36,18 @@ module.exports = {
         // Editing this reply will remove the loading message and replace it with anything else
         await interaction.deferReply();
 
+        // Gets the user input from the command then optionally filters it if settings.ini - Filter_Naughty_Words is set to true
+        let userInput = interaction.options.getString('prompt');
+  
+        if (inputFilter == true) {
+            console.log("Filtering prompt...");
+            userInput = filter.clean(userInput);
+            console.log("The user input after filtering is: " + userInput);
+        }
+        
         // Runs the python file AIMemeGenerator.py with the --userprompt and --memecount flag
         // --nouserinput is required to prevent it asking for user input in the console
         try {
-            const userInput = interaction.options.getString('prompt');
-            console.log("The user input is: " + userInput);
             await runPythonFileAndWait('AIMemeGenerator.py', ['--nouserinput', '--userprompt', userInput, '--memecount', 1]);
             console.log('Python file finished running');
         } catch (error) {
