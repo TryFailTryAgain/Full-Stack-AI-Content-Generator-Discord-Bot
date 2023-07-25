@@ -2,7 +2,7 @@
 
 #### Allows you to automatically generate meme images from start to finish using AI within Discord. It will generate the text for the meme (optionally based on a user-provided concept), create a related image, and combine the two into a final image file before posting it to the Discord server the /command called it from.
 ----------------------
-<p align="center"><img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Meme-Generator-Discord-Bot/assets/TODO" width=35%></p>
+<p align="center"><img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Meme-Generator-Discord-Bot/blob/main/assets/example.png" width=35%> <img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Meme-Generator-Discord-Bot/blob/main/assets/example2.png" width=35%></p>
 
 ## Features
 
