@@ -1,7 +1,7 @@
 {
   "name": "full-stack-ai-meme-generator-discord-bot",
   "version": "1.0.0",
-  "description": "----------------------\r <p align=\"center\"><img src=\"https://github.com/ThioJoe/Full-Stack-AI-Meme-Generator/assets/12518330/2d8ee7cc-a7d3-40ca-a894-64e10085db14\" width=35%></p>",
+  "description": "https://github.com/TryFailTryAgain/Full-Stack-AI-Meme-Generator-Discord-Bot",
   "main": "index.js",
   "dependencies": {
     "busboy": "^1.6.0",
