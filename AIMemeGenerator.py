@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # AI Meme Generator
 # Creates start-to-finish memes using various AI service APIs. OpenAI's chatGPT to generate the meme text and image prompt, and several optional image generators for the meme picture. Then combines the meme text and image into a meme using Pillow.
-# Author: ThioJoe
-# Project Page: https://github.com/ThioJoe/Full-Stack-AI-Meme-Generator
+# Author: ThioJoe and enhancements by TryFailTryAgain
+# Unmodified Source Project Page: https://github.com/ThioJoe/Full-Stack-AI-Meme-Generator
 version = "1.0.4"
 
 # Import installed libraries
@@ -675,10 +675,20 @@ def generate(
     # Display Header
     print(f"\n==================== AI Meme Generator - {version} ====================")
 
+    # If there are arguments, use those instead of default values and dont ask for any user input
+    # Other 'advanced' settings are set and modified elsewhere in the script. These two are only required here
+    # This functionality was added in accordance to the readme file description for the noUserInput argument flag
+    # Readme description: If specified, this will prevent any user input prompts, and will instead use default values or other arguments.
     if noUserInput:
-        userEnteredPrompt = user_entered_prompt
-        meme_count = meme_count # Use default set in function parameter (1)
-    
+        if args.userprompt:
+            userEnteredPrompt = args.userprompt
+        else:
+            userEnteredPrompt = user_entered_prompt ## Default will be "anything" or whatever is set as the default if nothing entered
+        if args.memecount:
+            meme_count = int(args.memecount)
+        else:
+            meme_count = meme_count  # Use default set in function parameter (1)
+
     # If any arguments are being used (or set to true for store_true arguments), skip the user input and use the arguments or defaults
     else:
         # If no user prompt argument set, get user input for prompt
