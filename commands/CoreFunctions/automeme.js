@@ -1,3 +1,7 @@
+// File: automeme.js
+// Author: TryFailTryAgain
+// Copyright (c) 2023. All rights reserved. For use in Open-Source projects this
+// may be freely copied or excerpted with credit to the author.
 const { SlashCommandBuilder } = require('discord.js');
 const { spawn } = require('child_process');
 const fs = require('fs');
