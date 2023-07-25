@@ -7,7 +7,7 @@ module.exports = {
 		.setDescription('Replies with a selfi!'),
 	async execute(interaction) {
 		await interaction.reply({
-            files: ['commands/Testing/Robot-no-meme.jpg']
+            files: ['commands/Utility/Robot-no-meme.jpg']
         });
 	},
 };
