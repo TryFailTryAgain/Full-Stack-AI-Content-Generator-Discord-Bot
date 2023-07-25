@@ -1,8 +1,8 @@
-# Full Stack AI Meme Generator
+# Full Stack AI Meme Generator In A Discord Bot
 
-#### Allows you to automatically generate meme images from start to finish using AI. It will generate the text for the meme (optionally based on a user-provided concept), create a related image, and combine the two into a final image file.
+#### Allows you to automatically generate meme images from start to finish using AI within Discord. It will generate the text for the meme (optionally based on a user-provided concept), create a related image, and combine the two into a final image file before posting it to the Discord server the /command called it from.
 ----------------------
-<p align="center"><img src="https://github.com/ThioJoe/Full-Stack-AI-Meme-Generator/assets/12518330/2d8ee7cc-a7d3-40ca-a894-64e10085db14" width=35%></p>
+<p align="center"><img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Meme-Generator-Discord-Bot/assets/TODO" width=35%></p>
 
 ## Features
 
@@ -11,15 +11,33 @@
 - Allows customization of the meme generation process through various settings.
 - Generates memes with a user-provided subject or concept, or you can let the AI decide.
 - Logs meme generation details for future reference.
+- Discord integration with two /slash commands for automatic or promted memes
 
-## Usage
+## Current Discord bot /slash commands
 
-1. For Python Version Only: Clone the repository & Install the necessary packages.
-2. Obtain at least an OpenAI API key, but it is recommended to also use APIs from Clipdrop or Stability AI (DreamStudio) for the image generation stage.
-3. Edit the settings variables in the settings.ini file.
-4. Run the script and enter a meme subject or concept when prompted (optional).
+- /automeme  This with generate a completly random meme on request and post it in the chat where the command was called
+- /automeme_about  This has a required promot field that a user enters their prompt idea/concept/instructions
 
-## Settings
+## Usage instructions
+
+1. Clone the repository & Install the necessary packages. via
+    - Node.js requirements: npm install
+    - Python requirements: pip install -r Requirements.txt
+3. Obtain at least an OpenAI API key, but it is recommended to also use APIs from Clipdrop or Stability AI (DreamStudio) for the image generation stage.
+4. Copy the blank files provided in the 'assets' folder into the root folder and name them 'settings.ini' and 'api_keys.ini' respectively. This is for controlling meme generation
+    - Edit 'api_keys.ini' to add your api keys for the platforms you intend to use. OpenAI required.
+    - Edit 'settings.ini' to make any modifications to the defaults. Each setting is explained in the comments of the file
+5. Copy and rename 'config_empty.json' to 'config.json' in the root directory and to include:
+    - token: Your bot secret token
+    - clientId: The application id of your discord application
+    - guildId: The server id for the discord server you would like the bot to be able to operate in 
+7. Invite your bot made via discord developer portal to your server
+8. Run the command deploy script to initialize the commands on your server
+    - node deploy-commands.js
+9. Start the bot!
+    - node .
+
+## Settings for customization
 
 Various settings for the meme generation process can be customized:
 
@@ -41,7 +59,7 @@ Chat Bot Image Prompt: "A photograph of a cat laying down on an open laptop."
 Image Generation Platform: clipdrop
 ```
 
-## Optional Arguments
+## Optional Arguments for commandline interaction and development of additional bot functionality
 ### You can also pass options into the program via command-line arguments whether using the python version or exe version.
 
 #### • API Key Arguments: Not necessary if the keys are already in api_keys.ini
@@ -72,10 +90,4 @@ Image Generation Platform: clipdrop
 `--nouserinput`: If specified, this will prevent any user input prompts, and will instead use default values or other arguments.
 
 `--nofilesave`: If specified, the meme will not be saved to a file, and only returned as virtual file part of memeResultsDictsList.
-
-## How to Build Exe Yourself
-#### Note: To build the exe you have to set up the python environment anyway, so by that point you can just run the python version of the script. But if you want the build the exe yourself anyway here is how:
-1. Ensure required packages are installed
-2. Additionally, install PyInstaller: `pip install pyinstaller` (If using a virtual environment, install it into that)
-3. Run this command in terminal from within the project directory: `python -m PyInstaller main.spec`
 
