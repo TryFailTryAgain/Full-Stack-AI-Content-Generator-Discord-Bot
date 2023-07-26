@@ -18,30 +18,50 @@ module.exports = {
 
         // Runs the python file AIMemeGenerator.py with the --nouserinput flag
         try {
-            await runPythonFileAndWait('AIMemeGenerator.py', ['--nouserinput']);
+            await runPythonFileAndWait('./AIMemeGenerator.py', ['--nouserinput']);
             console.log('Python file finished running');
         } catch (error) {
             console.error("Running AIMemeGenerator.py FAILED with error: " + error);
+            await interaction.editReply({
+                content: 'There was an error in the generation step of making this meme!',
+                ephemeral: true
+            });
         }
-
-        // Replies to the user with the generated meme by editing the previous reply
-        const outputPath = findFileName();
-        console.log("The returned file path to the meme is: " + outputPath);
-        await interaction.editReply({
-            files: [outputPath]
-        });
+  
+        // Gets the path to the meme output file now that it has been generated
+        try {
+            const outputPath = findFileName();
+            console.log("The returned file path to the meme is: " + outputPath);
+            // Replies to the user with the generated meme by editing the previous reply
+            await interaction.editReply({
+                files: [outputPath]
+            });
+        } catch (error) {
+            console.error(error);
+            await interaction.editReply({
+                content: "An error occurred while fetching this meme.",
+                ephemeral: true
+            });
+        }
     },
 };
 
 // Finds the path to the meme output file. It will be the last entry in the log.txt file
-// The line in the log file reads "Meme File Name:" followed by the file name
+// The line in the log file reads "Meme File Name: " followed by the file name
 function findFileName() {
-    const logFilePath = 'Outputs/log.txt';
+    // Defines the log file path and gets the file contents
+    const logFilePath = './Outputs/log.txt'; /*TODO: Make this variable be parsed from the settings.ini config file*/
     const logFileContent = fs.readFileSync(logFilePath, 'utf8');
-    const logFileLines = logFileContent.split('\n');
-    const memeFileNameLine = logFileLines.findLast(line => line.startsWith('Meme File Name:'));
-    const memeFileName = memeFileNameLine.split(':')[1].trim();
-    const memeFilePath = `./Outputs/${memeFileName}`;
+
+    // Gets the index of the LAST instance of 'Meme File Name:' in the log file provided. 
+    // This ensures we get the most recent image generated
+    const memeFileNameIndex = logFileContent.lastIndexOf('Meme File Name:');
+
+    // Grab the filename out
+    // The first argument in the substring function has "+ 2" to skip the ": " in the "Meme File Name: " line.
+    const memeFileName = logFileContent.substring(logFileContent.indexOf(':', memeFileNameIndex) + 2, logFileContent.indexOf('\n', memeFileNameIndex)).trim();
+    const memeFilePath = ('./Outputs/' + memeFileName);
+
     return memeFilePath;
 }
 
