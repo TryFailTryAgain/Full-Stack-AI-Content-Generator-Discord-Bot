@@ -8,8 +8,9 @@ assets/api_keys.ini
 assets/settings.ini
 
 #output files
-/Outputs
-
+Outputs/*
+!Outputs/example.png
+!Outputs/example2.png
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

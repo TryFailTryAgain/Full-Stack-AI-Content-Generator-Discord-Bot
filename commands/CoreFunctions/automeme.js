@@ -7,7 +7,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 
 module.exports = {
-    cooldown: 15,
+    cooldown: 1,
     data: new SlashCommandBuilder()
         .setName('automeme')
         .setDescription('Replies with a totally random meme!'),

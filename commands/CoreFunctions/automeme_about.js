@@ -23,7 +23,7 @@ if (inputFilter == true) {
 }
 
 module.exports = {
-    cooldown: 15,
+    cooldown: 1,
     data: new SlashCommandBuilder()
         .setName('automeme_about')
         .setDescription('Replies with a meme about the given a idea!')
@@ -40,7 +40,7 @@ module.exports = {
         let userInput = interaction.options.getString('prompt');
         if (inputFilter == true) {
             console.log("Filtering prompt...");
-            userInput = filter.clean(userInput);
+            userInput = (filter.clean(userInput)).toString();
             console.log("The user input after filtering is: " + userInput);
         } else {
             console.log("The user input is: " + userInput);
