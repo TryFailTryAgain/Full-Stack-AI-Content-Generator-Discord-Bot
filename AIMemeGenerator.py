@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # AI Meme Generator
 # Creates start-to-finish memes using various AI service APIs. OpenAI's chatGPT to generate the meme text and image prompt, and several optional image generators for the meme picture. Then combines the meme text and image into a meme using Pillow.
-# Author: ThioJoe and enhancements by TryFailTryAgain
+# Author: ThioJoe 
+# Enhancements by TryFailTryAgain
 # Unmodified Source Project Page: https://github.com/ThioJoe/Full-Stack-AI-Meme-Generator
 version = "1.0.4"
 
@@ -659,7 +660,8 @@ def generate(
         print(f"\n  ERROR:  {fx}")
         if not noUserInput:
             input("\nPress Enter to exit...")
-        sys.exit()
+        raise Exception(f"\n  ERROR:  {fx}")
+        sys.exit() # Should not get here, but just in case
     
     # Check for updates
     if not noUserInput:
@@ -766,13 +768,15 @@ def generate(
         print(f"\n  ERROR:  {ox}")
         if not noUserInput:
             input("\nPress Enter to exit...")
-        sys.exit()
+        raise Exception(f"\n  ERROR:  {ox}")
+        sys.exit() # Should never get here, but just in case
         
     except MissingAPIKeyError as ax:
         print(f"\n  ERROR:  {ax}")
         if not noUserInput:
             input("\nPress Enter to exit...")
-        sys.exit()
+        raise Exception(f"\n  ERROR:  {ax}")
+        sys.exit() # Should never get here, but just in case
         
     except openai.error.InvalidRequestError as irx:
         print(f"\n  ERROR:  {irx}")
@@ -788,14 +792,15 @@ def generate(
                 print("   > See this page to see the model names to use in the API: https://platform.openai.com/docs/models/overview")
         if not noUserInput:
             input("\nPress Enter to exit...")
-        sys.exit()
+        raise Exception(f"\n  ERROR:  {irx}")
+        sys.exit() # Should never get here, but just in case
     
     except Exception as ex:
         print(f"\n  ERROR:  An error occurred while generating the meme. Error: {ex}")
         if not noUserInput:
             input("\nPress Enter to exit...")
-        sys.exit()
-    
+        raise Exception(f"\n  ERROR:  An error occurred while generating the meme. Error: {ex}")
+        sys.exit() # Should never get here, but just in case
     # If called from command line, will return the list of meme results
     return memeResultsDictsList
 
