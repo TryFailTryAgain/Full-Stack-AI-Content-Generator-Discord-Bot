@@ -20,26 +20,28 @@ module.exports = {
         try {
             await runPythonFileAndWait('./AIMemeGenerator.py', ['--nouserinput']);
             console.log('Python file finished running');
+            
+            // Gets the path to the meme output file now that it has been generated
+            try {
+                const outputPath = findFileName();
+                console.log("The returned file path to the meme is: " + outputPath);
+                // Replies to the user with the generated meme by editing the previous reply
+                await interaction.editReply({
+                    files: [outputPath]
+                });
+            } catch (error) {
+                console.error(error);
+                await interaction.deleteReply();
+                await interaction.followUp({
+                    content: "An error occurred while fetching this meme. Please try again",
+                    ephemeral: true
+                });
+            }
         } catch (error) {
             console.error("Running AIMemeGenerator.py FAILED with error: " + error);
-            await interaction.editReply({
-                content: 'There was an error in the generation step of making this meme!',
-                ephemeral: true
-            });
-        }
-  
-        // Gets the path to the meme output file now that it has been generated
-        try {
-            const outputPath = findFileName();
-            console.log("The returned file path to the meme is: " + outputPath);
-            // Replies to the user with the generated meme by editing the previous reply
-            await interaction.editReply({
-                files: [outputPath]
-            });
-        } catch (error) {
-            console.error(error);
-            await interaction.editReply({
-                content: "An error occurred while fetching this meme.",
+            await interaction.deleteReply();
+            await interaction.followUp({
+                content: 'There was an error in the generation step of making this meme! Try again!',
                 ephemeral: true
             });
         }
@@ -66,7 +68,9 @@ function findFileName() {
 }
 
 // Runs the desired python file along with any arguments passed to it and waits for it to finish before allowing the program to continue
-const runPythonFileAndWait = async (filename, args) => {
+function runPythonFileAndWait(filename, args) {
+    let error = '';
+    console.log("The args passed are: " + args);
     // Spawns the script with the arguments passed to it
     const pythonProcess = spawn('python', [filename, ...args]);
     // Waits for the script to finish before continuing after resolve() is called in the close event
@@ -76,11 +80,18 @@ const runPythonFileAndWait = async (filename, args) => {
             console.log(`stdout: ${data}`);
         });
         pythonProcess.stderr.on('data', (data) => {
+            error += data.toString();
             console.error(`stderr: ${data}`);
         });
         pythonProcess.on('close', (code) => {
             console.log(`Process exited with code ${code}`);
-            resolve();
+            // Rejects the promise with the error message if there is an error. This will be caught by a catch block if the function is called in a try block
+            if (error) {
+                console.error("!!!Generation error. Message will not be posted with an image!!! :  " + error);
+                reject(error);
+            } else {
+                resolve();
+            }
         });
     });
-};
+}

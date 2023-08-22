@@ -38,12 +38,23 @@ module.exports = {
 
         // Gets the user input from the command then optionally filters it if settings.ini - Filter_Naughty_Words is set to true
         let userInput = interaction.options.getString('prompt');
-        if (inputFilter == true) {
-            console.log("Filtering prompt...");
-            userInput = (filter.clean(userInput)).toString();
-            console.log("The user input after filtering is: " + userInput);
-        } else {
-            console.log("The user input is: " + userInput);
+        try {
+            if (inputFilter == true) {
+                console.log("Filtering prompt...");
+                userInput = (filter.clean(userInput)).toString();
+                console.log("The user input after filtering is: " + userInput);
+            } else {
+                console.log("The user input is: " + userInput);
+            }
+        } catch (error) {
+            console.error(error);
+            await interaction.deleteReply();
+            await interaction.followUp({
+                content: "An error occurred while fetching the prompt. Please try again",
+                ephemeral: true
+            });
+            // Exit the function early if there is an error
+            return;
         }
 
         // Runs the python file AIMemeGenerator.py with the --userprompt and --memecount flag
@@ -51,27 +62,32 @@ module.exports = {
         try {
             await runPythonFileAndWait('./AIMemeGenerator.py', ['--nouserinput', '--userprompt', userInput, '--memecount', 1]);
             console.log('Python file finished running');
+
+            // Gets the path to the meme output file now that it has been generated
+            try {
+                const outputPath = findFileName();
+                console.log("The returned file path to the meme is: " + outputPath);
+                // Replies to the user with the generated meme by editing the previous reply
+                await interaction.editReply({
+                    files: [outputPath]
+                });
+            } catch (error) {
+                console.error(error);
+                await interaction.deleteReply();
+                await interaction.followUp({
+                    content: "An error occurred while fetching this meme. Please try again",
+                    ephemeral: true
+                });
+                return;
+            }
         } catch (error) {
             console.error("Running AIMemeGenerator.py FAILED with error: " + error);
-            await interaction.editReply({
-                content: 'There was an error in the generation step of making this meme!',
+            await interaction.deleteReply();
+            await interaction.followUp({
+                content: "There was an error in the generation step of making this meme! Try again!",
                 ephemeral: true
             });
-        }
-        // Gets the path to the meme output file now that it has been generated
-        try {
-            const outputPath = findFileName();
-            console.log("The returned file path to the meme is: " + outputPath);
-            // Replies to the user with the generated meme by editing the previous reply
-            await interaction.editReply({
-                files: [outputPath]
-            });
-        } catch (error) {
-            console.error(error);
-            await interaction.editReply({
-                content: "An error occurred while fetching this meme.",
-                ephemeral: true
-            });
+            return;
         }
     },
 };
@@ -96,7 +112,8 @@ function findFileName() {
 }
 
 // Runs the desired python file along with any arguments passed to it and waits for it to finish before allowing the program to continue
-const runPythonFileAndWait = async (filename, args) => {
+function runPythonFileAndWait(filename, args) {
+    let error = '';
     console.log("The args passed are: " + args);
     // Spawns the script with the arguments passed to it
     const pythonProcess = spawn('python', [filename, ...args]);
@@ -107,11 +124,18 @@ const runPythonFileAndWait = async (filename, args) => {
             console.log(`stdout: ${data}`);
         });
         pythonProcess.stderr.on('data', (data) => {
+            error += data.toString();
             console.error(`stderr: ${data}`);
         });
         pythonProcess.on('close', (code) => {
             console.log(`Process exited with code ${code}`);
-            resolve();
+            // Rejects the promise with the error message if there is an error. This will be caught by a catch block if the function is called in a try block
+            if (error) {
+                console.error("!!!Generation error. Message will not be posted with an image!!! :  " + error);
+                reject(error);
+            } else {
+                resolve();
+            }
         });
     });
-};
+}
