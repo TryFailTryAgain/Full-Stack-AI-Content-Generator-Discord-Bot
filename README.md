@@ -1,11 +1,11 @@
-# Full Stack AI Meme Generator In A Discord Bot
+# Full Stack AI Meme/Story Generator In A Discord Bot
 
-#### Allows you to automatically generate meme images from start to finish using AI within Discord. It will generate the text for the meme (optionally based on a user-provided concept), create a related image, and combine the two into a final image file before posting it to the Discord server the /command called it from.
+#### Allows you to automatically generate meme images, and ad-lib stories to fill in, from start to finish using AI within Discord. It will generate the text for the meme (optionally based on a user-provided concept), create a related image, and combine the two into a final image file before posting it to the Discord server the /command called it from.
 ----------------------
 <p align="center"><img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Meme-Generator-Discord-Bot/blob/main/assets/example.png" width=35%> <img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Meme-Generator-Discord-Bot/blob/main/assets/example2.png" width=35%></p>
 
 ## Features
-
+- NEW FUNCTIONALITY: Create an AI generated ad-lib story that you fill in
 - Uses OpenAI's GPT-4 to generate the text and image prompt for the meme.
 - Automatically sends image prompt request to an AI image generator of choice, then combines the text and image
 - Allows customization of the meme generation process through various settings.
@@ -18,6 +18,7 @@
 
 - /automeme  This with generate a completely random meme on request and post it in the chat where the command was called
 - /automeme_about  This has a required prompt field that a user enters their prompt idea/concept/instructions
+- /ad-lib_story  This will summon chatGPT to create a story, with or without a user prompt to guide it, that then sends a modal form for the user to fill out before turning the ad-libed story back over to them
 
 ## Usage instructions
 
