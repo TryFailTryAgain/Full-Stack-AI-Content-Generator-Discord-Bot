@@ -191,11 +191,12 @@ async function generateStory(prompt) {
             model: "gpt-3.5-turbo",
             messages: [
                 // Provides instructions to the AI on how to generate the story
-                { role: "system", content: "You are a Madlibs style story writer who will always respond with the story in its correct formatting by using [NOUN], [VERB], [ADVERB], [ADJECTIVE] to replace some words and nothing else. Your task is to generate a MadLibs style short story that has occasional placeholders where nouns, verbs, adjectives, and adverbs would be that are formatted as [NOUN], [VERB], [ADVERB], [ADJECTIVE]. Only replace some of the words with their appropriate placeholder so that when filled in with a user provided word it could make for a humorous story. You may or may not be provided with a user provided prompt that you should use to define the general direction of the story, if no prompt is provided when told what it is, you are free to write as you please." },
+                { role: "system", content: "You are a Madlibs style story writer who will always respond with a short story in its correct formatting by using [NOUN], [VERB], [ADVERB], [ADJECTIVE] to replace some words and nothing else. Your task is to generate a MadLibs style short story that has occasional placeholders where nouns, verbs, adjectives, and adverbs would be that are formatted as [NOUN], [VERB], [ADVERB], [ADJECTIVE]. Only replace some of the words with their appropriate placeholder so that when filled in with a user provided word it could make for a humorous story. You may or may not be provided with a user provided prompt that you should use to define the general direction of the story, if no prompt is provided when told what it is, you are free to write as you please." },
                 // Includes the user provided prompt in the message to the AI
                 { role: "user", content: "The following may be an idea/concept or request that the user has provided that should give you direction in the generation of a Madlibs style story that uses [NOUN], [VERB], [ADVERB], [ADJECTIVE] to replace some of their respective words. Do with it what you think is best. Thank you. User prompt: " + prompt }
             ],
             stream: false,
+            max_tokens: 300,
         });
         console.log("The story is: ");
         console.log(story.choices[0].message.content);
