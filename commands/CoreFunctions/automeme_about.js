@@ -12,7 +12,7 @@ const config = ini.parse(fs.readFileSync('./settings.ini', 'utf-8'));
 const inputFilter = Boolean(config.Advanced.Filter_Naughty_Words);
 // This is a profanity filter that will prevent the bot from passing profanity and other rude words to the generator
 // It can be enabled or disabled in the config.json file
-var Filter = require('bad-words'),
+let Filter = require('bad-words'),
     filter = new Filter();
 
 //Alert console if the profanity filter is enabled or disabled
