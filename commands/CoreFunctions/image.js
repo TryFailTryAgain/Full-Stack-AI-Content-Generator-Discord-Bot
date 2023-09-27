@@ -11,6 +11,8 @@ const Filter = require('bad-words');
 const filter = new Filter();
 /* End getting required modules */
 
+/* Some global variables for ease of access */
+const apiHost = process.env.API_HOST || 'https://api.stability.ai';
 
 /* Acquiring values */
 // Parse the api_keys.ini file to get the API key for StabilityAI 
@@ -112,6 +114,10 @@ module.exports = {
         let sdEngine = interaction.options.getString('stable-diffusion-model') || 'stable-diffusion-xl-1024-v1-0';
         let cfgScale = interaction.options.getInteger('cfg-scale') || 7;
         let steps = interaction.options.getInteger('steps') || 30;
+        // Detects if SD 1.5 is selected but the resolution was not manually set. Override its default to 512x512 as it is terrible at 1024x1024
+        if (sdEngine == 'stable-diffusion-v1-5' && dimensions == '1024x1024') {
+            dimensions = '512x512';
+        }
 
         // Prompt filtering
         try {
@@ -139,21 +145,35 @@ module.exports = {
         // Generates a randomID integer to be used in the file name for identification
         let randomID = Math.floor(Math.random() * 1000000000);
 
-        // Detects if SD 1.5 is selected but the resolution was not manually set. Override its default to 512x512
-        if (sdEngine == 'stable-diffusion-v1-5' && dimensions == '1024x1024') {
-            dimensions = '512x512';
+        // Check if out of API credits
+        try {
+            if (await getBalance() < 2) {
+                await interaction.deleteReply();
+                await interaction.followUp({
+                    content: 'Out of API credits! Please consider donating to your server to keep this bot running!',
+                    ephemeral: true
+                });
+            }
+        } catch (error) {
+            console.error(error);
+            await interaction.deleteReply();
+            await interaction.followUp({
+                content: "An error occurred while fetching the API balance. Please try again",
+                ephemeral: true
+            });
+            return;
         }
 
-        console.log("Sending generation request to StabilityAI with the following parameters: \n" + 
-        "Prompt: " + userInput + "\n" +
-        "Dimensions: " + dimensions + "\n" +
-        "Stable Diffusion Engine: " + sdEngine + "\n" +
-        "cfg-scale: " + cfgScale + "\n" +
-        "Steps: " + steps + "\n" +
-        "Random ID: " + randomID + "\n"
+        console.log("Sending generation request to StabilityAI with the following parameters: \n" +
+            "Prompt: " + userInput + "\n" +
+            "Dimensions: " + dimensions + "\n" +
+            "Stable Diffusion Engine: " + sdEngine + "\n" +
+            "cfg-scale: " + cfgScale + "\n" +
+            "Steps: " + steps + "\n" +
+            "Random ID: " + randomID + "\n"
         );
-
-        try { await generateImage(userInput, dimensions, sdEngine, cfgScale, steps, randomID);
+        try {
+            await generateImage(userInput, dimensions, sdEngine, cfgScale, steps, randomID);
         } catch (error) {
             console.error(error);
             await interaction.deleteReply();
@@ -167,6 +187,7 @@ module.exports = {
         // Replies to the user with the generated image by editing the previous reply
         await interaction.editReply({
             // TODO: Make this dynamically get the file name
+            content: await lowBalance(),
             files: [`./Outputs/txt2img_${randomID}_0.png`], // The '0" after randomID is the index but since we only generate one image, it will always be 0
         });
         /* End of image generation */
@@ -176,10 +197,9 @@ module.exports = {
 async function generateImage(prompt, dimensions, sdEngine, cfg, steps, randomID) {
     /* REST API call to StabilityAI */
     console.log("Generating image...");
-    const apiHost = process.env.API_HOST || 'https://api.stability.ai';
 
     // Split the dimensions string into height and width
-    const [width, height ] = dimensions.split('x').map(Number);
+    const [width, height] = dimensions.split('x').map(Number);
     console.log("Width: " + width + "   Height: " + height);
 
     await fetch(`${apiHost}/v1/generation/${sdEngine}/text-to-image`, {
@@ -222,7 +242,39 @@ async function generateImage(prompt, dimensions, sdEngine, cfg, steps, randomID)
             console.error(error);
             // Throws another error to be caught when the function is called
             throw new Error(`Error: ${error}`);
-            
         });
     /* End REST API call to StabilityAI */
+}
+
+async function getBalance() {
+    const url = `${apiHost}/v1/user/balance`
+    const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+            Authorization: `${StabilityAIKey}`,
+        },
+    })
+
+    if (!response.ok) {
+        throw new Error(`Non-200 response: ${await response.text()}`)
+    }
+
+    const balance = await response.json();
+    return balance.credits;
+}
+
+async function lowBalance() {
+    const balance = await getBalance();
+    let message = '';
+    switch (true) {
+        case (balance < 100):
+            message = 'Almost out of api credits, please consider sending your server host a few bucks to keep me running <3';
+            break;
+        case (balance < 400):
+            message = 'Consider funding your server host $1 <3';
+            break;
+        case (balance >= 600):
+            break;
+    }
+    return message;
 }
