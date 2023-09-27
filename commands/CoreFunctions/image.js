@@ -67,6 +67,13 @@ module.exports = {
                 )
                 .setRequired(false)
         )
+        .addIntegerOption(option =>
+            option.setName('number-of-images')
+                .setDescription('How many images to generate. Default: 1')
+                .setMinValue(1)
+                .setMaxValue(9)
+                .setRequired(false)
+        )
         .addStringOption(option =>
             option.setName('stable-diffusion-model')
                 .setDescription('The engine to use for generating the image. Default: SDXL 1.0')
@@ -111,6 +118,7 @@ module.exports = {
         // Defaults are set if the user does not provide them
         let userInput = interaction.options.getString('prompt');
         let dimensions = interaction.options.getString('dimensions') || '1024x1024';
+        let numberOfImages = interaction.options.getInteger('number-of-images') || 1;
         let sdEngine = interaction.options.getString('stable-diffusion-model') || 'stable-diffusion-xl-1024-v1-0';
         let cfgScale = interaction.options.getInteger('cfg-scale') || 7;
         let steps = interaction.options.getInteger('steps') || 30;
@@ -147,7 +155,7 @@ module.exports = {
 
         // Check if out of API credits
         try {
-            if (await getBalance() < 2) {
+            if (await getBalance() < 2 * numberOfImages) { //current SDXL price is 1.6-2 credits per image
                 await interaction.deleteReply();
                 await interaction.followUp({
                     content: 'Out of API credits! Please consider donating to your server to keep this bot running!',
@@ -172,8 +180,10 @@ module.exports = {
             "Steps: " + steps + "\n" +
             "Random ID: " + randomID + "\n"
         );
+
+        let imagePaths = [];
         try {
-            await generateImage(userInput, dimensions, sdEngine, cfgScale, steps, randomID);
+            imagePaths = await generateImage(userInput, dimensions, numberOfImages, sdEngine, cfgScale, steps, randomID);
         } catch (error) {
             console.error(error);
             await interaction.deleteReply();
@@ -188,16 +198,17 @@ module.exports = {
         await interaction.editReply({
             // TODO: Make this dynamically get the file name
             content: await lowBalance(),
-            files: [`./Outputs/txt2img_${randomID}_0.png`], // The '0" after randomID is the index but since we only generate one image, it will always be 0
+            files: imagePaths,
         });
         /* End of image generation */
     }
 };
 
-async function generateImage(prompt, dimensions, sdEngine, cfg, steps, randomID) {
+async function generateImage(prompt, dimensions, numberOfImages, sdEngine, cfg, steps, randomID) {
     /* REST API call to StabilityAI */
     console.log("Generating image...");
 
+    let imagePaths = [];
     // Split the dimensions string into height and width
     const [width, height] = dimensions.split('x').map(Number);
     console.log("Width: " + width + "   Height: " + height);
@@ -220,7 +231,7 @@ async function generateImage(prompt, dimensions, sdEngine, cfg, steps, randomID)
             width: width,
             height: height,
             steps: steps,
-            samples: 1,
+            samples: numberOfImages,
         }),
     })
         .then(async (response) => {
@@ -236,6 +247,7 @@ async function generateImage(prompt, dimensions, sdEngine, cfg, steps, randomID)
                     Buffer.from(image.base64, 'base64')
                 );
                 console.log(`Saved Image: ./Outputs/txt2img_${randomID}_${index}.png`);
+                imagePaths.push(`./Outputs/txt2img_${randomID}_${index}.png`);
             });
         })
         .catch((error) => {
@@ -243,6 +255,9 @@ async function generateImage(prompt, dimensions, sdEngine, cfg, steps, randomID)
             // Throws another error to be caught when the function is called
             throw new Error(`Error: ${error}`);
         });
+
+    // return the image paths
+    return imagePaths;
     /* End REST API call to StabilityAI */
 }
 
