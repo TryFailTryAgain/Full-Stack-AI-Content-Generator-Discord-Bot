@@ -4,7 +4,7 @@
 // may be freely copied or excerpted with credit to the author.
 
 /* Getting required modules */
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, AttachmentBuilder } = require('discord.js');
 const fs = require('fs');
 const ini = require('ini');
 const Filter = require('bad-words');
@@ -26,15 +26,25 @@ if (StabilityAIKey == "") {
 // It can be enabled or disabled in the config.json file
 //parse the settings.ini file to get the value of Filter_Naughty_Words
 const config = ini.parse(fs.readFileSync('./settings.ini', 'utf-8'));
-const inputFilter = Boolean(config.Advanced.Filter_Naughty_Words);
-
-
+const inputFilter = config.Advanced.Filter_Naughty_Words;
 // Alert console if the profanity filter is enabled or disabled
-if (inputFilter == true) {
-    console.log("The profanity filter is enabled for the 'image' command");
+if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
+    console.log("Profanity filter -- /image == ENABLED");
 
+} else if (inputFilter == 'false' || inputFilter == 'False' || inputFilter == 'FALSE'){
+    console.log("Profanity filter -- /image == DISABLED");
 } else {
-    console.log("The profanity filter is disabled");
+    throw new Error("The Filter_Naughty_Words setting in settings.ini is not set to true or false. Please set it to true or false");
+}
+
+// Check if images should be saved to disk or not from settings.ini
+const saveImages = config.Advanced.Save_Images;
+if (saveImages == 'true' || saveImages == 'True' || saveImages == 'TRUE') {
+    console.log("Save images to disk -- /image == ENABLED");
+} else if (saveImages == 'false' || saveImages == 'False' || saveImages == 'FALSE'){
+    console.log("Save images to disk -- /image == DISABLED");
+} else {
+    throw new Error("The Save_Images setting in settings.ini is not set to true or false. Please set it to true or false");
 }
 /* End of Acquiring values */
 
@@ -129,7 +139,7 @@ module.exports = {
 
         // Prompt filtering
         try {
-            if (inputFilter == true) {
+            if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
                 console.log("Filtering prompt...");
                 userInput = (filter.clean(userInput)).toString();
                 console.log("The user input after filtering is: " + userInput);
@@ -150,8 +160,6 @@ module.exports = {
         //TODO: Add some prompt optimization using openai's API to improve the prompt for better image generation
 
         /* Image generation */
-        // Generates a randomID integer to be used in the file name for identification
-        let randomID = Math.floor(Math.random() * 1000000000);
 
         // Check if out of API credits
         try {
@@ -177,13 +185,10 @@ module.exports = {
             "Dimensions: " + dimensions + "\n" +
             "Stable Diffusion Engine: " + sdEngine + "\n" +
             "cfg-scale: " + cfgScale + "\n" +
-            "Steps: " + steps + "\n" +
-            "Random ID: " + randomID + "\n"
-        );
-
-        let imagePaths = [];
+            "Steps: " + steps + "\n");
+        let imageBuffer = null;
         try {
-            imagePaths = await generateImage(userInput, dimensions, numberOfImages, sdEngine, cfgScale, steps, randomID);
+            imageBuffer = await generateImage(userInput, dimensions, numberOfImages, sdEngine, cfgScale, steps);
         } catch (error) {
             console.error(error);
             await interaction.deleteReply();
@@ -193,22 +198,33 @@ module.exports = {
             });
             return;
         }
+        let attachments = [];
+        for (let i = 0; i < imageBuffer.length; i++) {
+            attachments.push(new AttachmentBuilder(imageBuffer[i]));
+          }
+
 
         // Replies to the user with the generated image by editing the previous reply
         await interaction.editReply({
             // TODO: Make this dynamically get the file name
             content: await lowBalance(),
-            files: imagePaths,
+            files: attachments,
         });
         /* End of image generation */
     }
 };
 
-async function generateImage(prompt, dimensions, numberOfImages, sdEngine, cfg, steps, randomID) {
+async function generateImage(userInput, dimensions, numberOfImages, sdEngine, cfg, steps) {
     /* REST API call to StabilityAI */
-    console.log("Generating image...");
+    //Checks settings.ini for image logging to be enabled or disabled
 
-    let imagePaths = [];
+
+    console.log("Generating image...");
+    // Creates an empty array to store the image buffers in
+    let imageBuffer = [];
+    // Generates a randomID integer to be used in the file name for identification
+    const randomID = Math.floor(Math.random() * 1000000000);
+    console.log("The generated images will have Random ID: " + randomID);
     // Split the dimensions string into height and width
     const [width, height] = dimensions.split('x').map(Number);
     console.log("Width: " + width + "   Height: " + height);
@@ -223,7 +239,7 @@ async function generateImage(prompt, dimensions, numberOfImages, sdEngine, cfg, 
         body: JSON.stringify({
             text_prompts: [
                 {
-                    text: prompt,
+                    text: userInput,
                 },
             ],
             // Defines the parameters for the image generation specified by the user
@@ -242,12 +258,16 @@ async function generateImage(prompt, dimensions, numberOfImages, sdEngine, cfg, 
             const responseJSON = await response.json();
 
             responseJSON.artifacts.forEach((image, index) => {
+                // Saves images to disk if the setting is enabled, otherwise only send them to discord
+                if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
                 fs.writeFileSync(
                     `./Outputs/txt2img_${randomID}_${index}.png`,
                     Buffer.from(image.base64, 'base64')
                 );
                 console.log(`Saved Image: ./Outputs/txt2img_${randomID}_${index}.png`);
-                imagePaths.push(`./Outputs/txt2img_${randomID}_${index}.png`);
+                }
+                // Pushes the image buffer to the buffer array to be returned
+                imageBuffer.push(Buffer.from(image.base64, 'base64'));
             });
         })
         .catch((error) => {
@@ -256,8 +276,8 @@ async function generateImage(prompt, dimensions, numberOfImages, sdEngine, cfg, 
             throw new Error(`Error: ${error}`);
         });
 
-    // return the image paths
-    return imagePaths;
+    // return the image buffer full of the generated images
+    return imageBuffer;
     /* End REST API call to StabilityAI */
 }
 
