@@ -8,6 +8,8 @@ const { SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, Event
 const fs = require('fs');
 const ini = require('ini');
 const OpenAI = require('openai');
+const Filter = require('bad-words');
+const filter = new Filter();
 
 //parse the api_keys.ini file to get the API key provided
 const apiKeys = ini.parse(fs.readFileSync('./api_keys.ini', 'utf-8'));
@@ -18,18 +20,19 @@ if (openAIKey == "") {
 const openai = new OpenAI(openAIKey);
 
 //parse the settings.ini file to get the value of Filter_Naughty_Words
-const config = ini.parse(fs.readFileSync('./settings.ini', 'utf-8'));
-const inputFilter = Boolean(config.Advanced.Filter_Naughty_Words);
-
 // This is a profanity filter that will prevent the bot from passing profanity and other rude words to the generator
 // It can be enabled or disabled in the config.json file
-const Filter = require('bad-words');
-const filter = new Filter();
+const config = ini.parse(fs.readFileSync('./settings.ini', 'utf-8'));
+const inputFilter = config.Advanced.Filter_Naughty_Words;
+
 //Alert console if the profanity filter is enabled or disabled
-if (inputFilter == true) {
-    console.log("The profanity filter for ad-lib_story is ENABLED");
+if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
+    console.log("Profanity filter -- /ad-lib-story == ENABLED");
+
+} else if (inputFilter == 'false' || inputFilter == 'False' || inputFilter == 'FALSE'){
+    console.log("Profanity filter -- /ad-lib-story == DISABLED");
 } else {
-    console.log("The profanity filter for ad-lib_story is DISABLED");
+    throw new Error("The Filter_Naughty_Words setting in settings.ini is not set to true or false. Please set it to true or false");
 }
 /* End Requirements & Setup */
 
@@ -59,7 +62,7 @@ module.exports = {
         if (interaction.options.getString('prompt')) {
             prompt = interaction.options.getString('prompt');
             // Optionally filters the prompt if settings.ini - Filter_Naughty_Words is set to true
-            if (inputFilter == true) {
+            if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
                 console.log("Filtering prompt...");
                 userInput = (filter.clean(prompt)).toString();
                 console.log("The user input after filtering is: " + prompt);
@@ -160,7 +163,7 @@ module.exports = {
             userAdjectives = interaction.fields.getTextInputValue('userAdjectives');
             userAdverbs = interaction.fields.getTextInputValue('userAdverbs');
             // Filters the user input if inputFilter is set to true in the settings.ini file
-            if (inputFilter == true) {
+            if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
                 console.log("Filtering submitted words...");
                 userNouns = (filter.clean(userNouns)).toString();
                 userVerbs = (filter.clean(userVerbs)).toString();

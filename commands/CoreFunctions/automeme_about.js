@@ -7,19 +7,22 @@ const { SlashCommandBuilder } = require('discord.js');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const ini = require('ini');
+const Filter = require('bad-words');
+const filter = new Filter();
 //parse the settings.ini file to get the value of Filter_Naughty_Words
-const config = ini.parse(fs.readFileSync('./settings.ini', 'utf-8'));
-const inputFilter = Boolean(config.Advanced.Filter_Naughty_Words);
 // This is a profanity filter that will prevent the bot from passing profanity and other rude words to the generator
 // It can be enabled or disabled in the config.json file
-let Filter = require('bad-words'),
-    filter = new Filter();
+const config = ini.parse(fs.readFileSync('./settings.ini', 'utf-8'));
+const inputFilter = config.Advanced.Filter_Naughty_Words;
 
 //Alert console if the profanity filter is enabled or disabled
-if (inputFilter == true) {
-    console.log("The profanity filter is enabled");
+if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
+    console.log("Profanity filter -- /automeme_about == ENABLED");
+
+} else if (inputFilter == 'false' || inputFilter == 'False' || inputFilter == 'FALSE'){
+    console.log("Profanity filter -- /automeme_about == DISABLED");
 } else {
-    console.log("The profanity filter is disabled");
+    throw new Error("The Filter_Naughty_Words setting in settings.ini is not set to true or false. Please set it to true or false");
 }
 
 module.exports = {
@@ -39,7 +42,7 @@ module.exports = {
         // Gets the user input from the command then optionally filters it if settings.ini - Filter_Naughty_Words is set to true
         let userInput = interaction.options.getString('prompt');
         try {
-            if (inputFilter == true) {
+            if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
                 console.log("Filtering prompt...");
                 userInput = (filter.clean(userInput)).toString();
                 console.log("The user input after filtering is: " + userInput);
