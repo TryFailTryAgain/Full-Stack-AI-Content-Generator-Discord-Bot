@@ -9,18 +9,24 @@ const fs = require('fs');
 const ini = require('ini');
 const Filter = require('bad-words');
 const filter = new Filter();
+const OpenAI = require('openai');
 /* End getting required modules */
 
 /* Some global variables for ease of access */
 const apiHost = process.env.API_HOST || 'https://api.stability.ai';
 
 /* Acquiring values */
-// Parse the api_keys.ini file to get the API key for StabilityAI 
+// Parse the api_keys.ini file to get the API key for StabilityAI and OpenAI
 const apiKeys = ini.parse(fs.readFileSync('./api_keys.ini', 'utf-8'));
 const StabilityAIKey = apiKeys.Keys.StabilityAI;
 if (StabilityAIKey == "") {
     throw new Error("The Stability.ai API key is not set. Please set it in the api_keys.ini file");
 }
+const openAIKey = apiKeys.Keys.OpenAI;
+if (openAIKey == "") {
+    throw new Error("The OpenAI API key is not set. Please set it in the api_keys.ini file");
+}
+const openai = new OpenAI(openAIKey);
 
 // This is a profanity filter that will prevent the bot from passing profanity and other rude words to the generator
 // It can be enabled or disabled in the config.json file
@@ -31,7 +37,7 @@ const inputFilter = config.Advanced.Filter_Naughty_Words;
 if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
     console.log("Profanity filter -- /image == ENABLED");
 
-} else if (inputFilter == 'false' || inputFilter == 'False' || inputFilter == 'FALSE'){
+} else if (inputFilter == 'false' || inputFilter == 'False' || inputFilter == 'FALSE') {
     console.log("Profanity filter -- /image == DISABLED");
 } else {
     throw new Error("The Filter_Naughty_Words setting in settings.ini is not set to true or false. Please set it to true or false");
@@ -41,7 +47,7 @@ if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
 const saveImages = config.Advanced.Save_Images;
 if (saveImages == 'true' || saveImages == 'True' || saveImages == 'TRUE') {
     console.log("Save images to disk -- /image == ENABLED");
-} else if (saveImages == 'false' || saveImages == 'False' || saveImages == 'FALSE'){
+} else if (saveImages == 'false' || saveImages == 'False' || saveImages == 'FALSE') {
     console.log("Save images to disk -- /image == DISABLED");
 } else {
     throw new Error("The Save_Images setting in settings.ini is not set to true or false. Please set it to true or false");
@@ -59,6 +65,11 @@ module.exports = {
             option.setName('prompt')
                 .setDescription('The prompt/idea for the image')
                 .setMaxLength(200)
+                .setRequired(true)
+        )
+        .addBooleanOption(option =>
+            option.setName('optimize-prompt')
+                .setDescription('Optimize the prompt using the prompt optimizer. Default: true')
                 .setRequired(true)
         )
         .addStringOption(option =>
@@ -102,7 +113,7 @@ module.exports = {
         )
         .addIntegerOption(option =>
             option.setName('steps')
-                .setDescription('How many steps to refine the image. More is not always better Default:30')
+                .setDescription('How many steps to refine the image. More is not always better Default:35')
                 .setMinValue(1)
                 .setMaxValue(60)
                 .addChoices(
@@ -127,11 +138,12 @@ module.exports = {
         // Gets the user input and other options from the command then optionally filters it if settings.ini - Filter_Naughty_Words is set to true
         // Defaults are set if the user does not provide them
         let userInput = interaction.options.getString('prompt');
+        let optimizePrompt = interaction.options.getBoolean('optimize-prompt');
         let dimensions = interaction.options.getString('dimensions') || '1024x1024';
         let numberOfImages = interaction.options.getInteger('number-of-images') || 1;
         let sdEngine = interaction.options.getString('stable-diffusion-model') || 'stable-diffusion-xl-1024-v1-0';
         let cfgScale = interaction.options.getInteger('cfg-scale') || 7;
-        let steps = interaction.options.getInteger('steps') || 30;
+        let steps = interaction.options.getInteger('steps') || 35;
         // Detects if SD 1.5 is selected but the resolution was not manually set. Override its default to 512x512 as it is terrible at 1024x1024
         if (sdEngine == 'stable-diffusion-v1-5' && dimensions == '1024x1024') {
             dimensions = '512x512';
@@ -139,25 +151,18 @@ module.exports = {
 
         // Prompt filtering
         try {
-            if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
-                console.log("Filtering prompt...");
-                userInput = (filter.clean(userInput)).toString();
-                console.log("The user input after filtering is: " + userInput);
-            } else {
-                console.log("The user input is: " + userInput);
-            }
+            userInput = await filterString(userInput);
         } catch (error) {
             console.error(error);
             await interaction.deleteReply();
             await interaction.followUp({
-                content: "An error occurred while processing the prompt. \n Maybe you typed something you should'nt have? Please try again.",
+                content: "An error occurred while filtering the prompt. Please try again",
                 ephemeral: true
             });
-            // Exit the function early if there is an error
             return;
         }
 
-        //TODO: Add some prompt optimization using openai's API to improve the prompt for better image generation
+
 
         /* Image generation */
 
@@ -179,7 +184,38 @@ module.exports = {
             });
             return;
         }
-
+        // Optimize the prompt if the user has selected to do so
+        let optimized_Prompt = null;
+        if (optimizePrompt) {
+            try {
+                optimized_Prompt = await promptOptimizer(userInput);
+                console.log("The optimized prompt before filtering is:\n" + optimized_Prompt);
+            } catch (error) {
+                console.error(error);
+                await interaction.deleteReply();
+                await interaction.followUp({
+                    content: "An error occurred while optimizing the prompt. Please try again",
+                    ephemeral: true
+                });
+                return;
+            }
+            // Filter the returned optimized prompt. Just in case the AI is unhappy today
+            try {
+                optimized_Prompt = await filterString(optimized_Prompt);
+                console.log("The optimized prompt after filtering is:\n" + optimized_Prompt);
+            } catch (error) {
+                console.error(error);
+                await interaction.deleteReply();
+                await interaction.followUp({
+                    content: "An error occurred while filtering the prompt after optimization. Please try again",
+                    ephemeral: true
+                });
+                return;
+            }
+            // Sets the user input to the new optimized prompt
+            userInput = optimized_Prompt;
+        }
+        
         console.log("Sending generation request to StabilityAI with the following parameters: \n" +
             "Prompt: " + userInput + "\n" +
             "Dimensions: " + dimensions + "\n" +
@@ -201,23 +237,25 @@ module.exports = {
         let attachments = [];
         for (let i = 0; i < imageBuffer.length; i++) {
             attachments.push(new AttachmentBuilder(imageBuffer[i]));
-          }
+        }
 
 
         // Replies to the user with the generated image by editing the previous reply
         await interaction.editReply({
             // TODO: Make this dynamically get the file name
-            content: await lowBalance(),
+            content: await lowBalanceMessage(),
             files: attachments,
         });
         /* End of image generation */
     }
 };
+/* End of the command functional execution */
 
+
+/* Functions */
 async function generateImage(userInput, dimensions, numberOfImages, sdEngine, cfg, steps) {
     /* REST API call to StabilityAI */
     //Checks settings.ini for image logging to be enabled or disabled
-
 
     console.log("Generating image...");
     // Creates an empty array to store the image buffers in
@@ -260,11 +298,11 @@ async function generateImage(userInput, dimensions, numberOfImages, sdEngine, cf
             responseJSON.artifacts.forEach((image, index) => {
                 // Saves images to disk if the setting is enabled, otherwise only send them to discord
                 if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
-                fs.writeFileSync(
-                    `./Outputs/txt2img_${randomID}_${index}.png`,
-                    Buffer.from(image.base64, 'base64')
-                );
-                console.log(`Saved Image: ./Outputs/txt2img_${randomID}_${index}.png`);
+                    fs.writeFileSync(
+                        `./Outputs/txt2img_${randomID}_${index}.png`,
+                        Buffer.from(image.base64, 'base64')
+                    );
+                    console.log(`Saved Image: ./Outputs/txt2img_${randomID}_${index}.png`);
                 }
                 // Pushes the image buffer to the buffer array to be returned
                 imageBuffer.push(Buffer.from(image.base64, 'base64'));
@@ -279,6 +317,62 @@ async function generateImage(userInput, dimensions, numberOfImages, sdEngine, cf
     // return the image buffer full of the generated images
     return imageBuffer;
     /* End REST API call to StabilityAI */
+}
+
+async function filterString(input) {
+    try {
+        if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
+            console.log("Filtering string...\n String: " + input);
+            input = (filter.clean(input)).toString();
+            console.log("The string after filtering is:\n" + input);
+        } else {
+            console.log("The string is: " + input);
+        }
+    } catch (error) {
+        console.error(error);
+        // Throws another error to be caught when the function is called
+        throw new Error(`Error: ${error}`);
+    }
+    return input;
+}
+
+// Function to optimize the prompt using openai's API
+
+async function promptOptimizer(userInput) {
+    // Send the prompt to openai's API to optimize it
+    // TODO: Move system and user messages to settings.ini
+    console.log("Optimizing prompt...");
+    let response = null;
+    try {
+        response = await openai.chat.completions.create({
+            model: "gpt-3.5-turbo",
+            messages: [
+                {
+                    // Credit to @night from FlowGPT.com for this prompt. It was the first to appear when searching for a prompt, so here it is. 
+                    // It may or may not be the best, I have not tested, but it is very popular so maybe. 
+                    "role": "system",
+                    "content": "You are an AI text-to-image prompt generator, your primary role is to generate detailed, dynamic, and stylized prompts for image generation. Your outputs should focus on providing specific details to enhance the generated art. Respond with no other content than the image prompts\n\nFocus on emphasizing key elements like characters, objects, environments, or clothing to provide more details, as details can be lost in AI-generated art.\n\n- Ensure that all relevant tagging categories are covered.\n- Add unique touches to each output, making it lengthy, detailed, and stylized.\n- Show, don't tell; instead of tagging \"exceptional artwork\" provide precise details.\n- Ensure the output is returned as a string with no wrapping characters or other details.\n\n"
+                },
+                {
+                    // Credit to @night from FlowGPT.com for this prompt. It was the first to appear when searching for a prompt, so here it is. 
+                    // It may or may not be the best, I have not tested, but it is very popular so maybe.
+                    "role": "user",
+                    "content": "Tag placement is essential. Ensure that quality tags are in the front, object/character tags are in the center, and environment/setting tags are at the end. Emphasize important elements, like body parts or hair color, depending on the context. ONLY use descriptive adjectives.\n\n--- Tag examples ---\n```\nQuality tags:\nmasterpiece, 8k, UHD, trending on artstation, best quality, CG, official art, raw photo, wallpaper, high resolution\n\nCharacter/subject tags:\nman, woman, pale green eyes, black short hair, tan skin, hair in a bun\n\nMedium tags:\nsketch, oil painting, illustration, digital art, photo-realistic, realistic, splash art, comic book style, unity, CGI, Octane render\n\nBackground environment tags:\nintricate garden, flowers, roses, trees, leaves, table, chair, teacup, forest, subway\n\nColor tags:\nmonochromatic, warm colors, cool colors, pastel colors\n\nAtmospheric tags:\ncheerful, vibrant, dark, eerie, enchanted, gloomy, clear skies\n\nEmotion tags:\nsad, happy, smiling, gleeful, surprised, stunned\n\nComposition tags:\nside view, looking at viewer, extreme close-up, diagonal shot, dynamic angle\n```\n--- Final output examples ---\n```\nExample 1:\nUser submitted request: A close up of a woman playing the piano at night\nPrompt: 8K, UHD, photo-realistic, a woman with long wavy brown hair, piercing green eyes, playing grand piano, indoors, moonlight, elegant black dress, large window, blueish moonbeam, somber atmosphere, subtle reflection, extreme close-up, side view, gleeful, richly textured wallpaper, vintage candelabrum, glowing candles\n\nExample 2:\nUser submitted request: Medieval knight battling a dragon with a mace and plate armor, dramatic, dynamic angle\nPrompt: masterpiece, best quality, CGI, fierce medieval knight, full plate armor, crested helmet, blood-red plume, clashing swords, spiky mace, dynamic angle, fire-lit battlefield, battling fierce dragon, scales shimmering, sharp teeth, mighty wings, castle ruins, billowing smoke, warm colors, intense emotion, vibrant, looking at viewer, mid-swing\n\nExample 3:\nUser submitted request: A business man in a blue suit, lost in a magical forest\nPrompt:  UHD, illustration, detailed, curious person in a blue suit, fairy tale setting, enchanted forest, luminous mushrooms, colorful birds, path winding, sunlight filtering, dappled shadows, pastel colors, magical atmosphere, diagonal shot, looking up in wonder\n```\nComplete this user request\nUser submitted request: " + userInput + "\nPrompt: "
+                }
+            ],
+            temperature: 1,
+            max_tokens: 160,
+            top_p: 1,
+            frequency_penalty: 0,
+            presence_penalty: 0,
+        });
+    } catch (error) {
+        console.error(error);
+        // Throws another error to be caught when the function is called
+        throw new Error(`Error: ${error}`);
+    }
+    return response.choices[0].message.content;
+
 }
 
 async function getBalance() {
@@ -298,7 +392,7 @@ async function getBalance() {
     return balance.credits;
 }
 
-async function lowBalance() {
+async function lowBalanceMessage() {
     const balance = await getBalance();
     let message = '';
     switch (true) {
@@ -313,3 +407,4 @@ async function lowBalance() {
     }
     return message;
 }
+/* End of functions */
