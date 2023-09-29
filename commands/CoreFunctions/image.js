@@ -8,7 +8,7 @@ const { SlashCommandBuilder, AttachmentBuilder } = require('discord.js');
 const fs = require('fs');
 const ini = require('ini');
 const Filter = require('bad-words');
-const filter = new Filter();
+const filter = new Filter({ placeHolder: '*' });
 const OpenAI = require('openai');
 /* End getting required modules */
 
@@ -16,6 +16,9 @@ const OpenAI = require('openai');
 const apiHost = process.env.API_HOST || 'https://api.stability.ai';
 
 /* Acquiring values */
+//parse the settings.ini file to get the values
+const config = ini.parse(fs.readFileSync('./settings.ini', 'utf-8'));
+
 // Parse the api_keys.ini file to get the API key for StabilityAI and OpenAI
 const apiKeys = ini.parse(fs.readFileSync('./api_keys.ini', 'utf-8'));
 const StabilityAIKey = apiKeys.Keys.StabilityAI;
@@ -30,28 +33,19 @@ const openai = new OpenAI(openAIKey);
 
 // This is a profanity filter that will prevent the bot from passing profanity and other rude words to the generator
 // It can be enabled or disabled in the config.json file
-//parse the settings.ini file to get the value of Filter_Naughty_Words
-const config = ini.parse(fs.readFileSync('./settings.ini', 'utf-8'));
-const inputFilter = config.Advanced.Filter_Naughty_Words;
-// Alert console if the profanity filter is enabled or disabled
-if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
+if (filterCheck()) {
     console.log("Profanity filter -- /image == ENABLED");
-
-} else if (inputFilter == 'false' || inputFilter == 'False' || inputFilter == 'FALSE') {
+} else {
     console.log("Profanity filter -- /image == DISABLED");
-} else {
-    throw new Error("The Filter_Naughty_Words setting in settings.ini is not set to true or false. Please set it to true or false");
+}
+// Check if images should be saved to disk or not from settings.ini
+if (saveToDiskCheck()) {
+    console.log("Save images to disk -- /image == ENABLED");
+}
+else {
+    console.log("Save images to disk -- /image == DISABLED");
 }
 
-// Check if images should be saved to disk or not from settings.ini
-const saveImages = config.Advanced.Save_Images;
-if (saveImages == 'true' || saveImages == 'True' || saveImages == 'TRUE') {
-    console.log("Save images to disk -- /image == ENABLED");
-} else if (saveImages == 'false' || saveImages == 'False' || saveImages == 'FALSE') {
-    console.log("Save images to disk -- /image == DISABLED");
-} else {
-    throw new Error("The Save_Images setting in settings.ini is not set to true or false. Please set it to true or false");
-}
 /* End of Acquiring values */
 
 
@@ -68,8 +62,8 @@ module.exports = {
                 .setRequired(true)
         )
         .addBooleanOption(option =>
-            option.setName('optimize-prompt')
-                .setDescription('Optimize the prompt using the prompt optimizer. Default: true')
+            option.setName('stylize-prompt')
+                .setDescription('Stylize-prompt the prompt using the automatic prompt stylize')
                 .setRequired(true)
         )
         .addStringOption(option =>
@@ -138,7 +132,7 @@ module.exports = {
         // Gets the user input and other options from the command then optionally filters it if settings.ini - Filter_Naughty_Words is set to true
         // Defaults are set if the user does not provide them
         let userInput = interaction.options.getString('prompt');
-        let optimizePrompt = interaction.options.getBoolean('optimize-prompt');
+        let optimizePrompt = interaction.options.getBoolean('stylize-prompt');
         let dimensions = interaction.options.getString('dimensions') || '1024x1024';
         let numberOfImages = interaction.options.getInteger('number-of-images') || 1;
         let sdEngine = interaction.options.getString('stable-diffusion-model') || 'stable-diffusion-xl-1024-v1-0';
@@ -150,19 +144,19 @@ module.exports = {
         }
 
         // Prompt filtering
-        try {
-            userInput = await filterString(userInput);
-        } catch (error) {
-            console.error(error);
-            await interaction.deleteReply();
-            await interaction.followUp({
-                content: "An error occurred while filtering the prompt. Please try again",
-                ephemeral: true
-            });
-            return;
+        if (await filterCheck()) {
+            try {
+                userInput = await filterString(userInput);
+            } catch (error) {
+                console.error(error);
+                await interaction.deleteReply();
+                await interaction.followUp({
+                    content: "An error occurred while filtering the prompt. Please try again",
+                    ephemeral: true
+                });
+                return;
+            }
         }
-
-
 
         /* Image generation */
 
@@ -200,28 +194,30 @@ module.exports = {
                 return;
             }
             // Filter the returned optimized prompt. Just in case the AI is unhappy today
-            try {
-                optimized_Prompt = await filterString(optimized_Prompt);
-                console.log("The optimized prompt after filtering is:\n" + optimized_Prompt);
-            } catch (error) {
-                console.error(error);
-                await interaction.deleteReply();
-                await interaction.followUp({
-                    content: "An error occurred while filtering the prompt after optimization. Please try again",
-                    ephemeral: true
-                });
-                return;
+            if (await filterCheck()) {
+                try {
+                    optimized_Prompt = await filterString(optimized_Prompt);
+                    console.log("\nThe optimized prompt after filtering is:\n" + optimized_Prompt);
+                } catch (error) {
+                    console.error(error);
+                    await interaction.deleteReply();
+                    await interaction.followUp({
+                        content: "An error occurred while filtering the prompt after optimization. Please try again",
+                        ephemeral: true
+                    });
+                    return;
+                }
             }
             // Sets the user input to the new optimized prompt
             userInput = optimized_Prompt;
         }
-        
-        console.log("Sending generation request to StabilityAI with the following parameters: \n" +
+
+        console.log("\n\nSending generation request to StabilityAI with the following parameters: \n" +
             "Prompt: " + userInput + "\n" +
             "Dimensions: " + dimensions + "\n" +
             "Stable Diffusion Engine: " + sdEngine + "\n" +
             "cfg-scale: " + cfgScale + "\n" +
-            "Steps: " + steps + "\n");
+            "Steps: " + steps + "\n\n");
         let imageBuffer = null;
         try {
             imageBuffer = await generateImage(userInput, dimensions, numberOfImages, sdEngine, cfgScale, steps);
@@ -296,8 +292,8 @@ async function generateImage(userInput, dimensions, numberOfImages, sdEngine, cf
             const responseJSON = await response.json();
 
             responseJSON.artifacts.forEach((image, index) => {
-                // Saves images to disk if the setting is enabled, otherwise only send them to discord
-                if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
+                // Saves images to disk if the setting is enabled, otherwise only send them to Discord
+                if (saveToDiskCheck()) {
                     fs.writeFileSync(
                         `./Outputs/txt2img_${randomID}_${index}.png`,
                         Buffer.from(image.base64, 'base64')
@@ -319,15 +315,26 @@ async function generateImage(userInput, dimensions, numberOfImages, sdEngine, cf
     /* End REST API call to StabilityAI */
 }
 
+async function filterCheck() {
+    const inputFilter = config.Advanced.Filter_Naughty_Words;
+    // Alert console if the profanity filter is enabled or disabled
+    if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
+        return true;
+
+    } else if (inputFilter == 'false' || inputFilter == 'False' || inputFilter == 'FALSE') {
+        return false;
+    } else {
+        throw new Error("The Filter_Naughty_Words setting in settings.ini is not set to true or false. Please set it to true or false");
+    }
+}
+
 async function filterString(input) {
     try {
-        if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
-            console.log("Filtering string...\n String: " + input);
-            input = (filter.clean(input)).toString();
-            console.log("The string after filtering is:\n" + input);
-        } else {
-            console.log("The string is: " + input);
-        }
+        console.log("Filtering string...\n String: " + input);
+        input = (filter.clean(input)).toString();
+        // Removes the asterisks that the filter replaces the bad words with. Somehow this is not built into the filter to my knowledge
+        input = input.replace(/\*/g, '');
+        console.log("The string after filtering is:\n" + input);
     } catch (error) {
         console.error(error);
         // Throws another error to be caught when the function is called
@@ -350,12 +357,14 @@ async function promptOptimizer(userInput) {
                 {
                     // Credit to @night from FlowGPT.com for this prompt. It was the first to appear when searching for a prompt, so here it is. 
                     // It may or may not be the best, I have not tested, but it is very popular so maybe. 
+                    // Remember that you are responsible for your own generations. This prompt comes with no liability or warranty.
                     "role": "system",
                     "content": "You are an AI text-to-image prompt generator, your primary role is to generate detailed, dynamic, and stylized prompts for image generation. Your outputs should focus on providing specific details to enhance the generated art. Respond with no other content than the image prompts\n\nFocus on emphasizing key elements like characters, objects, environments, or clothing to provide more details, as details can be lost in AI-generated art.\n\n- Ensure that all relevant tagging categories are covered.\n- Add unique touches to each output, making it lengthy, detailed, and stylized.\n- Show, don't tell; instead of tagging \"exceptional artwork\" provide precise details.\n- Ensure the output is returned as a string with no wrapping characters or other details.\n\n"
                 },
                 {
                     // Credit to @night from FlowGPT.com for this prompt. It was the first to appear when searching for a prompt, so here it is. 
                     // It may or may not be the best, I have not tested, but it is very popular so maybe.
+                    // Remember that you are responsible for your own generations. This prompt comes with no liability or warranty.
                     "role": "user",
                     "content": "Tag placement is essential. Ensure that quality tags are in the front, object/character tags are in the center, and environment/setting tags are at the end. Emphasize important elements, like body parts or hair color, depending on the context. ONLY use descriptive adjectives.\n\n--- Tag examples ---\n```\nQuality tags:\nmasterpiece, 8k, UHD, trending on artstation, best quality, CG, official art, raw photo, wallpaper, high resolution\n\nCharacter/subject tags:\nman, woman, pale green eyes, black short hair, tan skin, hair in a bun\n\nMedium tags:\nsketch, oil painting, illustration, digital art, photo-realistic, realistic, splash art, comic book style, unity, CGI, Octane render\n\nBackground environment tags:\nintricate garden, flowers, roses, trees, leaves, table, chair, teacup, forest, subway\n\nColor tags:\nmonochromatic, warm colors, cool colors, pastel colors\n\nAtmospheric tags:\ncheerful, vibrant, dark, eerie, enchanted, gloomy, clear skies\n\nEmotion tags:\nsad, happy, smiling, gleeful, surprised, stunned\n\nComposition tags:\nside view, looking at viewer, extreme close-up, diagonal shot, dynamic angle\n```\n--- Final output examples ---\n```\nExample 1:\nUser submitted request: A close up of a woman playing the piano at night\nPrompt: 8K, UHD, photo-realistic, a woman with long wavy brown hair, piercing green eyes, playing grand piano, indoors, moonlight, elegant black dress, large window, blueish moonbeam, somber atmosphere, subtle reflection, extreme close-up, side view, gleeful, richly textured wallpaper, vintage candelabrum, glowing candles\n\nExample 2:\nUser submitted request: Medieval knight battling a dragon with a mace and plate armor, dramatic, dynamic angle\nPrompt: masterpiece, best quality, CGI, fierce medieval knight, full plate armor, crested helmet, blood-red plume, clashing swords, spiky mace, dynamic angle, fire-lit battlefield, battling fierce dragon, scales shimmering, sharp teeth, mighty wings, castle ruins, billowing smoke, warm colors, intense emotion, vibrant, looking at viewer, mid-swing\n\nExample 3:\nUser submitted request: A business man in a blue suit, lost in a magical forest\nPrompt:  UHD, illustration, detailed, curious person in a blue suit, fairy tale setting, enchanted forest, luminous mushrooms, colorful birds, path winding, sunlight filtering, dappled shadows, pastel colors, magical atmosphere, diagonal shot, looking up in wonder\n```\nComplete this user request\nUser submitted request: " + userInput + "\nPrompt: "
                 }
@@ -406,5 +415,16 @@ async function lowBalanceMessage() {
             break;
     }
     return message;
+}
+
+async function saveToDiskCheck() {
+    const saveImages = config.Advanced.Save_Images;
+    if (saveImages == 'true' || saveImages == 'True' || saveImages == 'TRUE') {
+        return true;
+    } else if (saveImages == 'false' || saveImages == 'False' || saveImages == 'FALSE') {
+        return false;
+    } else {
+        throw new Error("The Save_Images setting in settings.ini is not set to true or false. Please set it to true or false");
+    }
 }
 /* End of functions */

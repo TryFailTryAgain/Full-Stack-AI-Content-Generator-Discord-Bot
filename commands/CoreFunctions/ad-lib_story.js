@@ -9,7 +9,7 @@ const fs = require('fs');
 const ini = require('ini');
 const OpenAI = require('openai');
 const Filter = require('bad-words');
-const filter = new Filter();
+const filter = new Filter({ placeHolder: '*' });
 
 //parse the api_keys.ini file to get the API key provided
 const apiKeys = ini.parse(fs.readFileSync('./api_keys.ini', 'utf-8'));
@@ -19,21 +19,17 @@ if (openAIKey == "") {
 }
 const openai = new OpenAI(openAIKey);
 
-//parse the settings.ini file to get the value of Filter_Naughty_Words
+// Parse the settings.ini file to get the values
+const config = ini.parse(fs.readFileSync('./settings.ini', 'utf-8'));
+
 // This is a profanity filter that will prevent the bot from passing profanity and other rude words to the generator
 // It can be enabled or disabled in the config.json file
-const config = ini.parse(fs.readFileSync('./settings.ini', 'utf-8'));
-const inputFilter = config.Advanced.Filter_Naughty_Words;
-
-//Alert console if the profanity filter is enabled or disabled
-if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
+if (filterCheck()) {
     console.log("Profanity filter -- /ad-lib-story == ENABLED");
-
-} else if (inputFilter == 'false' || inputFilter == 'False' || inputFilter == 'FALSE'){
-    console.log("Profanity filter -- /ad-lib-story == DISABLED");
 } else {
-    throw new Error("The Filter_Naughty_Words setting in settings.ini is not set to true or false. Please set it to true or false");
+    console.log("Profanity filter -- /ad-lib-story == DISABLED");
 }
+
 /* End Requirements & Setup */
 
 
@@ -57,23 +53,31 @@ module.exports = {
         // Editing with .editReply will remove the loading message and replace it with the new message
         await interaction.deferReply(); //Can not defer reply with a modal. Modal must come first
 
-        let prompt = "";
         // Grabs the prompt if provided by the user and filter it if required
-        if (interaction.options.getString('prompt')) {
-            prompt = interaction.options.getString('prompt');
+        let userInput = interaction.options.getString('prompt');
+        // If there is a prompt then check for filtering and do it acordingly
+        if (userInput) {
             // Optionally filters the prompt if settings.ini - Filter_Naughty_Words is set to true
-            if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
-                console.log("Filtering prompt...");
-                userInput = (filter.clean(prompt)).toString();
-                console.log("The user input after filtering is: " + prompt);
-            } else console.log("The user input without filtering is: " + prompt);
+            if (await filterCheck()) {
+                try {
+                    userInput = await filterString(userInput);
+                } catch (error) {
+                    console.error(error);
+                    await interaction.deleteReply();
+                    await interaction.followUp({
+                        content: "An error occurred while filtering the prompt. Please try again",
+                        ephemeral: true
+                    });
+                    return;
+                }
+            }
         } else {
             console.log("No prompt was provided by the user");
         }
 
         // Generates the story with the prompt if provided and requests the placeholders count
         //const story = 'The [NOUN] [VERB] [ADVERB] over the [ADJECTIVE] [NOUN].'; // Uncomment for debugging to bypass the API call and comment line below
-        const story = await generateStory(prompt);
+        const story = await generateStory(userInput);
         // requests the placeholder word count for the newly generated story
         const requestedPlaceholders = await placeholderCount(story);
 
@@ -163,12 +167,12 @@ module.exports = {
             userAdjectives = interaction.fields.getTextInputValue('userAdjectives');
             userAdverbs = interaction.fields.getTextInputValue('userAdverbs');
             // Filters the user input if inputFilter is set to true in the settings.ini file
-            if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
+            if (filterCheck()) {
                 console.log("Filtering submitted words...");
-                userNouns = (filter.clean(userNouns)).toString();
-                userVerbs = (filter.clean(userVerbs)).toString();
-                userAdjectives = (filter.clean(userAdjectives)).toString();
-                userAdverbs = (filter.clean(userAdverbs)).toString();
+                userNouns = await filterString(userNouns);
+                userVerbs = await filterString(userVerbs);
+                userAdjectives = await filterString(userAdjectives);
+                userAdverbs = await filterString(userAdverbs);
                 console.log("The user inputted words after filtering are: \n" + '[NOUNS] : ' + userNouns + '\n' + '[VERBS] : ' + userVerbs + '\n' + '[ADJECTIVES] : ' + userAdjectives + '\n' + '[ADVERBS] : ' + userAdverbs + '\n');
             } else {
                 console.log("The user inputted words without filtering are: \n" + '[NOUNS] : ' + userNouns + '\n' + '[VERBS] : ' + userVerbs + '\n' + '[ADJECTIVES] : ' + userAdjectives + '\n' + '[ADVERBS] : ' + userAdverbs + '\n');
@@ -186,7 +190,7 @@ module.exports = {
 
 
 // Generates the story with the prompt if provided and requests the placeholders count
-async function generateStory(prompt) {
+async function generateStory(userInput) {
     console.log("Generating story...");
     try {
         // Calls the OpenAI API to generate a story based on the prompt provided
@@ -196,15 +200,26 @@ async function generateStory(prompt) {
                 // Provides instructions to the AI on how to generate the story
                 { role: "system", content: "You are a Madlibs style story writer who will always respond with a short story in its correct formatting by using [NOUN], [VERB], [ADVERB], [ADJECTIVE] to replace some words and nothing else. Your task is to generate a MadLibs style short story that has occasional placeholders where nouns, verbs, adjectives, and adverbs would be that are formatted as [NOUN], [VERB], [ADVERB], [ADJECTIVE]. Only replace some of the words with their appropriate placeholder so that when filled in with a user provided word it could make for a humorous story. You may or may not be provided with a user provided prompt that you should use to define the general direction of the story, if no prompt is provided when told what it is, you are free to write as you please." },
                 // Includes the user provided prompt in the message to the AI
-                { role: "user", content: "The following may be an idea/concept or request that the user has provided that should give you direction in the generation of a Madlibs style story that uses [NOUN], [VERB], [ADVERB], [ADJECTIVE] to replace some of their respective words. Do with it what you think is best. Thank you. User prompt: " + prompt }
+                { role: "user", content: "The following may be an idea/concept or request that the user has provided that should give you direction in the generation of a Madlibs style story that uses [NOUN], [VERB], [ADVERB], [ADJECTIVE] to replace some of their respective words. Do with it what you think is best. Thank you. User prompt: " + userInput }
             ],
             stream: false,
             max_tokens: 300,
         });
         console.log("The story is: ");
         console.log(story.choices[0].message.content);
-        // Return the generated story
-        return story.choices[0].message.content;
+        // Filter the story if enabled just in case the AI is having a bad day.
+        // Return the stroy
+        if (filterCheck()) {
+            try {
+                return await filterString(story.choices[0].message.content);
+            } catch (error) {
+                // Throws another error to be caught when the function is called
+                throw new Error(`Error: ${error}`);
+            }
+        }
+        else {
+            return story.choices[0].message.content;
+        }
     } catch (error) {
         // Handle any errors that occur during the story generation
         if (error instanceof OpenAI.APIError) {
@@ -262,4 +277,32 @@ async function placeholderCount(story) {
         }
     });
     return counts;
+}
+
+async function filterCheck() {
+    const inputFilter = config.Advanced.Filter_Naughty_Words;
+    // Alert console if the profanity filter is enabled or disabled
+    if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
+        return true;
+
+    } else if (inputFilter == 'false' || inputFilter == 'False' || inputFilter == 'FALSE') {
+        return false;
+    } else {
+        throw new Error("The Filter_Naughty_Words setting in settings.ini is not set to true or false. Please set it to true or false");
+    }
+}
+
+async function filterString(input) {
+    try {
+        console.log("Filtering string...\n String: " + input);
+        input = (filter.clean(input)).toString();
+        // Removes the asterisks that the filter replaces the bad words with. Somehow this is not built into the filter to my knowledge
+        input = input.replace(/\*/g, '');
+        console.log("The string after filtering is:\n" + input);
+    } catch (error) {
+        console.error(error);
+        // Throws another error to be caught when the function is called
+        throw new Error(`Error: ${error}`);
+    }
+    return input;
 }
