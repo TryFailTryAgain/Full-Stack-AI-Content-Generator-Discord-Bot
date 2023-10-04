@@ -1,10 +1,17 @@
-# Full Stack AI Meme/Story Generator In A Discord Bot
+# Full Stack AI Content Generator Fully Built As A Ready To Deploy Discord Bot
 
-#### Allows you to automatically generate meme images, and ad-lib stories to fill in, from start to finish using AI within Discord. It will generate the text for the meme (optionally based on a user-provided concept), create a related image, and combine the two into a final image file before posting it to the Discord server the /command called it from.
+#### Allows you to automatically generate images of any kind using Stability.AI, optimize/stylize image prompts using Openai, memes with auto generated images and captions, and ad-lib stories to fill in, all from within Discord. 
 ----------------------
-<p align="center"><img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Meme-Generator-Discord-Bot/blob/main/assets/example.png" width=35%> <img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Meme-Generator-Discord-Bot/blob/main/assets/example2.png" width=35%></p>
+<p align="center"><img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Content-Generator-Discord-Bot/blob/main/assets/image-example.png"width=32%> <img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Meme-Generator-Discord-Bot/blob/main/assets/example2.png" width=40%></p>
 
 ## Features
+- NEW - Use Stability.AI to generate images given a prompt and optional options for
+  - Auto prompt optimization/stylization
+  - Stable Diffusion model
+  - Dimensions
+  - Number of image to generate
+  - Steps
+  - CFG
 - NEW FUNCTIONALITY: Create an AI generated ad-lib story that you fill in
 - Uses OpenAI's GPT-4 to generate the text and image prompt for the meme.
 - Automatically sends image prompt request to an AI image generator of choice, then combines the text and image
@@ -15,10 +22,15 @@
 - Optional profanity filter built in
 
 ## Current Discord bot /slash commands
+- /image
+  - Generates an image given a prompt and some optional parameters
+- /ad-lib_story
+  - This will summon chatGPT to create a story, with or without a user prompt to guide it, that then sends a modal form for the user to fill out before turning the ad-libed story back over to them
+- /automeme
+  - This with generate a completely random meme on request and post it in the chat where the command was called
+- /automeme_about
+  - This has a required prompt field that a user enters their prompt idea/concept/instructions
 
-- /automeme  This with generate a completely random meme on request and post it in the chat where the command was called
-- /automeme_about  This has a required prompt field that a user enters their prompt idea/concept/instructions
-- /ad-lib_story  This will summon chatGPT to create a story, with or without a user prompt to guide it, that then sends a modal form for the user to fill out before turning the ad-libed story back over to them
 
 ## Usage instructions
 
@@ -34,20 +46,24 @@
     - clientId: The application id of your discord application
     - guildId: The server id for the discord server you would like the bot to be able to operate in 
 7. Invite your bot made via discord developer portal to your server
-8. Run the command deploy script to initialize the commands on your server
+8. Run the command deploy script to initialize the commands on your specified server or use the global command to deploy to all servers the bot is in
     - node deploy-commands.js
+    - node deploy-commands-global.js
 9. Start the bot!
     - node .
 
-## Settings for customization
+## Settings for customization in settings.ini
+Global settings:
+- Profanity filter can be enabled/disabled
 
-Various settings for the meme generation process can be customized:
+/image specific settings:
+- Save images to disk can be enabled or disabled
 
+Meme generation specific settings:
 - OpenAI API settings: Choose the text model and temperature for generating the meme text and image prompt.
 - Image platform settings: Choose the platform for generating the meme image. Options include OpenAI's DALLE2, StabilityAI's DreamStudio, and ClipDrop.
 - Basic Meme Instructions: You can tell the AI about the general style or qualities to apply to all memes, such as using dark humor, surreal humor, wholesome, etc. 
 - Special Image Instructions: You can tell the AI how to generate the image itself (more specifically,  how to write the image prompt). You can specify a style such as being a photograph, drawing, etc, or something more specific such as always using cats in the pictures.
-- Profanity filter can be enabled/disabled
 
 ## Example Image Output With Log
 <p align="center"><img src="https://github.com/ThioJoe/Full-Stack-AI-Meme-Generator/assets/12518330/6400c973-f7af-45ed-a6ad-c062c2be0b64" width="400"></p>
@@ -62,7 +78,7 @@ Chat Bot Image Prompt: "A photograph of a cat laying down on an open laptop."
 Image Generation Platform: clipdrop
 ```
 
-## Optional Arguments for commandline interaction and development of additional bot functionality
+## Optional Arguments for commandline interaction and development of additional bot functionality using the meme generator
 ### You can also pass options into the program via command-line arguments whether using the python version or exe version.
 
 #### • API Key Arguments: Not necessary if the keys are already in api_keys.ini
