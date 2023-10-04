@@ -4,7 +4,7 @@
 // may be freely copied or excerpted with credit to the author.
 
 /* Getting required modules */
-const { SlashCommandBuilder, AttachmentBuilder } = require('discord.js');
+const { SlashCommandBuilder, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const fs = require('fs');
 const ini = require('ini');
 const Filter = require('bad-words');
@@ -142,7 +142,8 @@ module.exports = {
         if (sdEngine == 'stable-diffusion-v1-5' && dimensions == '1024x1024') {
             dimensions = '512x512';
         }
-
+        // Split out the width to check if it is over X during upscaling
+        let width = parseInt(dimensions.split('x')[0]);
         // Prompt filtering
         if (await filterCheck()) {
             try {
@@ -236,29 +237,182 @@ module.exports = {
         }
 
 
-        // Replies to the user with the generated image by editing the previous reply
-        await interaction.editReply({
-            // TODO: Make this dynamically get the file name
+        // Makes the ActionRow and adds the regen and upscale buttons to it
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('regenerate')
+                .setLabel('Regenerate')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('🔄'),
+            new ButtonBuilder()
+                .setCustomId('upscale')
+                .setLabel('Upscale')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('🔍')
+        );
+        // Check if multiple images were generated in the request as we can only upscale one at a time
+        // If > 1 are generated, Disable the upscale button
+        // TODO: Either add an /Upscale command and allow the user to supply an image or add a selector to select which image to upscale
+        if (numberOfImages > 1) {
+            row.components[1].setDisabled(true);
+        }
+
+
+        // Edit the reply to show the generated image and the button
+        const reply = await interaction.editReply({
             content: await lowBalanceMessage(),
             files: attachments,
+            components: [row],
         });
-        /* End of image generation */
+
+        /* Regenerate button handling */
+        // Create an interaction collector to listen for button interactions
+        const collectorFilter = i => i.customId === 'regenerate' && i.user.id === interaction.user.id;
+        const collector = reply.createMessageComponentCollector({ filter: collectorFilter, time: 300_000 });
+
+        // When the button is clicked, regenerate the image and update the reply
+        collector.on('collect', async i => {
+            // Disable the buttons to prevent double actions
+            row.components[0].setDisabled(true);
+            row.components[1].setDisabled(true);
+            // Update to show the disabled button but keep everything else as is
+            // This may be a silly implementation but it works and the other methods I tried... work less
+            await i.update({
+                components: [row],
+            });
+            // Check if out of API credits
+            try {
+                if (await getBalance() < 2 * numberOfImages) { //current SDXL price is 1.6-2 credits per image
+                    await interaction.followUp({
+                        content: 'Out of API credits! Please consider donating to your server to keep this bot running!',
+                        ephemeral: true
+                    });
+                }
+            } catch (error) {
+                console.error(error);
+                await interaction.followUp({
+                    content: "An error occurred while fetching the API balance. Please try again",
+                    ephemeral: true
+                });
+                return;
+            }
+            // Regenerate the image and update the reply
+            try {
+                imageBuffer = await generateImage(userInput, dimensions, numberOfImages, sdEngine, cfgScale, steps);
+            } catch (error) {
+                console.error(error);
+                await interaction.followUp({
+                    content: "An error occurred while regenerating the image.",
+                    ephemeral: true
+                });
+                return;
+            }
+            // Updates the width back the the base that was defined for the next upscale for checking the max width
+            width = parseInt(dimensions.split('x')[0]);
+            // Clears out the old attachments and build a new one with new images to be sent to discord
+            attachments = [];
+            for (let j = 0; j < imageBuffer.length; j++) {
+                attachments.push(new AttachmentBuilder(imageBuffer[j]));
+            }
+            // Re-enable the button now that we have the new image to update with
+            row.components[0].setDisabled(false);
+            // Check if multiple images were generated in the request as we can only upscale one at a time
+            // TODO: see above todo after action row creation
+            if (numberOfImages > 1) {
+                row.components[1].setDisabled(true);
+            }
+            await i.editReply({
+                content: await lowBalanceMessage(),
+                files: attachments,
+                components: [row],
+            });
+        });
+        /* End of regenerate button handling */
+
+        /* Upscale button handling */
+        // Builds the collector for the upscale button
+        const upscaleCollectorFilter = i => i.customId === 'upscale' && i.user.id === interaction.user.id;
+        const upscaleCollector = reply.createMessageComponentCollector({ filter: upscaleCollectorFilter, time: 300_000 });
+
+        // When the upscale button is clicked, upscale the most recent image and update the reply
+        upscaleCollector.on('collect', async i => {
+            // Disables the buttons to prevent more clicks
+            row.components[0].setDisabled(true);
+            row.components[1].setDisabled(true);
+            // Update to show the disabled button but keep everything else as is
+            await i.update({
+                components: [row],
+            });
+
+            // Check if out of API credits
+            try {
+                if (await getBalance() < 0.2) { //current esrgan price is a flat 0.2 credits per image
+                    await interaction.followUp({
+                        content: 'Out of API credits! Please consider donating to your server to keep this bot running!',
+                        ephemeral: true
+                    });
+                }
+            } catch (error) {
+                console.error(error);
+                await interaction.followUp({
+                    content: "An error occurred while fetching the API balance. Please try again",
+                    ephemeral: true
+                });
+                return;
+            }
+            // Upscale the most recent image and update the reply
+            try {
+                imageBuffer = await upscaleImage(imageBuffer, width);
+                // Double the width for the next upscale for max width check
+                width = width * 2;
+            } catch (error) {
+                console.error(error);
+                await interaction.followUp({
+                    content: error.message,
+                    ephemeral: true
+                });
+                return;
+            }
+            // clears out the old attachments and build a new one with the image to be sent to discord
+            attachments = [];
+            for (let j = 0; j < imageBuffer.length; j++) {
+                attachments.push(new AttachmentBuilder(imageBuffer[j]));
+            }
+            // Re-enables the buttons now that we have the new image to update with
+            row.components[0].setDisabled(false);
+            row.components[1].setDisabled(false);
+            // Updates the reply with the new image
+            await i.editReply({
+                content: "Upscaled to " + width + "px wide! " + await lowBalanceMessage(),
+                files: attachments,
+                components: [row],
+            });
+        });
+
+        // When the collectors time runs out, disable the buttons
+        collector.on('end', async () => {
+            row.components[0].setDisabled(true);
+            row.components[1].setDisabled(true);
+            await interaction.editReply({
+                components: [row],
+            });
+        });
+        /* End of upscale button handling */
     }
 };
-/* End of the command functional execution */
-
+/* End of image generation */
 
 /* Functions */
+// Documentation:
+// https://platform.stability.ai/docs/api-reference#tag/v1generation/operation/textToImage
 async function generateImage(userInput, dimensions, numberOfImages, sdEngine, cfg, steps) {
     /* REST API call to StabilityAI */
     //Checks settings.ini for image logging to be enabled or disabled
-
     console.log("Generating image...");
     // Creates an empty array to store the image buffers in
     let imageBuffer = [];
     // Generates a randomID integer to be used in the file name for identification
-    const randomID = Math.floor(Math.random() * 1000000000);
-    console.log("The generated images will have Random ID: " + randomID);
+    randomID.generate();
     // Split the dimensions string into height and width
     const [width, height] = dimensions.split('x').map(Number);
     console.log("Width: " + width + "   Height: " + height);
@@ -295,10 +449,10 @@ async function generateImage(userInput, dimensions, numberOfImages, sdEngine, cf
                 // Saves images to disk if the setting is enabled, otherwise only send them to Discord
                 if (saveToDiskCheck()) {
                     fs.writeFileSync(
-                        `./Outputs/txt2img_${randomID}_${index}.png`,
+                        `./Outputs/txt2img_${randomID.get()}_${index}.png`,
                         Buffer.from(image.base64, 'base64')
                     );
-                    console.log(`Saved Image: ./Outputs/txt2img_${randomID}_${index}.png`);
+                    console.log(`Saved Image: ./Outputs/txt2img_${randomID.get()}_${index}.png`);
                 }
                 // Pushes the image buffer to the buffer array to be returned
                 imageBuffer.push(Buffer.from(image.base64, 'base64'));
@@ -313,6 +467,52 @@ async function generateImage(userInput, dimensions, numberOfImages, sdEngine, cf
     // return the image buffer full of the generated images
     return imageBuffer;
     /* End REST API call to StabilityAI */
+}
+
+// Documentation:
+// https://platform.stability.ai/docs/api-reference#tag/v1generation/operation/upscaleImage
+async function upscaleImage(imageBuffer, width) {
+    const engineId = 'esrgan-v1-x2plus';
+
+    // Grab the randomID of the previous generation to be used in the file name to correlate it with 
+    // the original image
+    console.log("Upscaled image will should have identical Random ID: " + randomID.get());
+
+    // Check if the width if over 2048px
+    if (width >= 2048) {
+        throw new Error("The image is too large to upscale. Please use an image that is 2048px or smaller");
+    }
+    // Creates the form data that contains the image, width, file type, and authorization
+    const formData = new FormData();
+    formData.append('image', new Blob([imageBuffer[0]], { type: 'image/png' }));
+    formData.append('width', imageBuffer[0].width * 2);
+
+    const response = await fetch(
+        `${apiHost}/v1/generation/${engineId}/image-to-image/upscale`,
+        {
+            method: 'POST',
+            headers: {
+                Accept: 'image/png',
+                Authorization: `${StabilityAIKey}`,
+            },
+            body: formData,
+        }
+    );
+
+    if (!response.ok) {
+        throw new Error(`Non-200 response: ${await response.text()}`);
+    }
+
+    const image = await response.arrayBuffer();
+    if (saveToDiskCheck()) {
+        fs.writeFileSync(
+            `./Outputs/upscaled_${randomID.get()}_0.png`,
+            Buffer.from(image)
+        );
+        console.log(`Saved Image: ./Outputs/upscaled_${randomID.get()}_0.png`);
+    }
+    const newImageBuffer = [Buffer.from(image)];
+    return newImageBuffer;
 }
 
 async function filterCheck() {
@@ -427,4 +627,18 @@ async function saveToDiskCheck() {
         throw new Error("The Save_Images setting in settings.ini is not set to true or false. Please set it to true or false");
     }
 }
+
+const randomID = {
+    id: null,
+    generate: function () {
+        this.id = Math.floor(Math.random() * 1000000000);
+        console.log("The generated images will have Random ID: " + this.id);
+    },
+    get: function () {
+        if (this.id === null) {
+            this.generate();
+        }
+        return this.id;
+    }
+};
 /* End of functions */
