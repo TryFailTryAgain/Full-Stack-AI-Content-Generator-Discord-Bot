@@ -17,7 +17,7 @@ const openAIKey = apiKeys.Keys.OpenAI;
 if (openAIKey == "") {
     throw new Error("The OpenAI API key is not set. Please set it in the api_keys.ini file");
 }
-const openai = new OpenAI(openAIKey);
+const openai = new OpenAI({apiKey: openAIKey});
 
 // Parse the settings.ini file to get the values
 const config = ini.parse(fs.readFileSync('./settings.ini', 'utf-8'));

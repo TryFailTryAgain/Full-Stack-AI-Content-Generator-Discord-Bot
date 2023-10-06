@@ -15,7 +15,7 @@ const OpenAI = require('openai');
 /* Some global variables for ease of access */
 const apiHost = process.env.API_HOST || 'https://api.stability.ai';
 
-/* Acquiring values */
+/* Acquiring Global values */
 //parse the settings.ini file to get the values
 const config = ini.parse(fs.readFileSync('./settings.ini', 'utf-8'));
 
@@ -29,7 +29,7 @@ const openAIKey = apiKeys.Keys.OpenAI;
 if (openAIKey == "") {
     throw new Error("The OpenAI API key is not set. Please set it in the api_keys.ini file");
 }
-const openai = new OpenAI(openAIKey);
+const openai = new OpenAI({apiKey: openAIKey});
 
 // This is a profanity filter that will prevent the bot from passing profanity and other rude words to the generator
 // It can be enabled or disabled in the config.json file
@@ -320,6 +320,8 @@ module.exports = {
             // TODO: see above todo after action row creation
             if (numberOfImages > 1) {
                 row.components[1].setDisabled(true);
+            } else {
+                row.components[1].setDisabled(false);
             }
             await i.editReply({
                 content: await lowBalanceMessage(),
@@ -559,14 +561,14 @@ async function promptOptimizer(userInput) {
                     // It may or may not be the best, I have not tested, but it is very popular so maybe. 
                     // Remember that you are responsible for your own generations. This prompt comes with no liability or warranty.
                     "role": "system",
-                    "content": "You are an AI text-to-image prompt generator, your primary role is to generate detailed, dynamic, and stylized prompts for image generation. Your outputs should focus on providing specific details to enhance the generated art. Respond with no other content than the image prompts\n\nFocus on emphasizing key elements like characters, objects, environments, or clothing to provide more details, as details can be lost in AI-generated art.\n\n- Ensure that all relevant tagging categories are covered.\n- Add unique touches to each output, making it lengthy, detailed, and stylized.\n- Show, don't tell; instead of tagging \"exceptional artwork\" provide precise details.\n- Ensure the output is returned as a string with no wrapping characters or other details.\n\n"
+                    "content": "You are an AI text-to-image prompt generator, your primary role is to generate detailed, dynamic, and stylized prompts for image generation. Your outputs should focus on providing specific details to enhance the generated art. Respond with no other content than the image prompts\n\nFocus on emphasizing key elements like characters, objects, environments, or clothing to provide more details, as details can be lost in AI-generated art.\n\n- Ensure that all relevant tagging categories are covered.\n- Add unique touches to each output, making it lengthy, detailed, and stylized.\n- Show, dont tell; instead of tagging -exceptional artwork- provide precise details.\n- Ensure the output is returned as a string with no wrapping characters or other details.\n\n"
                 },
                 {
                     // Credit to @night from FlowGPT.com for this prompt. It was the first to appear when searching for a prompt, so here it is. 
                     // It may or may not be the best, I have not tested, but it is very popular so maybe.
                     // Remember that you are responsible for your own generations. This prompt comes with no liability or warranty.
                     "role": "user",
-                    "content": "Tag placement is essential. Ensure that quality tags are in the front, object/character tags are in the center, and environment/setting tags are at the end. Emphasize important elements, like body parts or hair color, depending on the context. ONLY use descriptive adjectives.\n\n--- Tag examples ---\n```\nQuality tags:\nmasterpiece, 8k, UHD, trending on artstation, best quality, CG, official art, raw photo, wallpaper, high resolution\n\nCharacter/subject tags:\nman, woman, pale green eyes, black short hair, tan skin, hair in a bun\n\nMedium tags:\nsketch, oil painting, illustration, digital art, photo-realistic, realistic, splash art, comic book style, unity, CGI, Octane render\n\nBackground environment tags:\nintricate garden, flowers, roses, trees, leaves, table, chair, teacup, forest, subway\n\nColor tags:\nmonochromatic, warm colors, cool colors, pastel colors\n\nAtmospheric tags:\ncheerful, vibrant, dark, eerie, enchanted, gloomy, clear skies\n\nEmotion tags:\nsad, happy, smiling, gleeful, surprised, stunned\n\nComposition tags:\nside view, looking at viewer, extreme close-up, diagonal shot, dynamic angle\n```\n--- Final output examples ---\n```\nExample 1:\nUser submitted request: A close up of a woman playing the piano at night\nPrompt: 8K, UHD, photo-realistic, a woman with long wavy brown hair, piercing green eyes, playing grand piano, indoors, moonlight, elegant black dress, large window, blueish moonbeam, somber atmosphere, subtle reflection, extreme close-up, side view, gleeful, richly textured wallpaper, vintage candelabrum, glowing candles\n\nExample 2:\nUser submitted request: Medieval knight battling a dragon with a mace and plate armor, dramatic, dynamic angle\nPrompt: masterpiece, best quality, CGI, fierce medieval knight, full plate armor, crested helmet, blood-red plume, clashing swords, spiky mace, dynamic angle, fire-lit battlefield, battling fierce dragon, scales shimmering, sharp teeth, mighty wings, castle ruins, billowing smoke, warm colors, intense emotion, vibrant, looking at viewer, mid-swing\n\nExample 3:\nUser submitted request: A business man in a blue suit, lost in a magical forest\nPrompt:  UHD, illustration, detailed, curious person in a blue suit, fairy tale setting, enchanted forest, luminous mushrooms, colorful birds, path winding, sunlight filtering, dappled shadows, pastel colors, magical atmosphere, diagonal shot, looking up in wonder\n```\nComplete this user request\nUser submitted request: " + userInput + "\nPrompt: "
+                    "content": "You are a Stable Diffusion prompt stylizer that only responds with image prompts like in the provided examples. Next you will be provided with some example tags and example prompt completions and then asked to complete the user request. Tag placement is essential. Ensure that quality tags are in the front, object/character tags are in the center, and environment/setting tags are at the end. Depending on the context, emphasize important elements, like body parts, hair color, or the style of the image.\n\n--- Tag examples ---\n```\nCharacter/subject tags:\nman, woman, pale green eyes, black short hair, tan skin, Godzilla, robot, warrior\n\nMedium tags:\nsketch, oil painting, illustration, digital art, photo-realistic, realistic, splash art, comic book style, unity, CGI, Octane render, hyper-realistic, photograph\n\nBackground environment tags:\nintricate garden, flowers, roses, trees, leaves, table, chair, teacup, forest, subway\n\nColor tags:\nmonochromatic, warm colors, cool colors, pastel colors\n\nAtmospheric tags:\ncheerful, vibrant, dark, eerie, enchanted, gloomy, clear skies\n\nEmotion tags:\nsad, happy, smiling, gleeful, surprised, stunned\n\nComposition tags:\nside view, looking at viewer, extreme close-up, diagonal shot, dynamic angle\n```\n--- Final output examples ---\n```\nExample 1:\nUser submitted request: A close up of a woman playing the piano at night\nPrompt:  photo-realistic, photograph, a woman with long wavy brown hair, piercing green eyes, playing grand piano, indoors, moonlight, elegant black dress, large window, blueish moonbeam, somber atmosphere, subtle reflection, extreme close-up, side view, gleeful, richly textured wallpaper, vintage candelabrum, glowing candles\n\nExample 2:\nUser submitted request: Medieval knight battling a dragon with a mace and plate armor, cgi style, dramatic, dynamic angle\nPrompt: CGI, Octane 3d render, fierce medieval knight, full plate armor, crested helmet, blood-red plume, clashing swords, spiky mace in hand, dynamic angle, fire-lit battlefield, battling fierce dragon, scales shimmering, sharp teeth, mighty wings, castle ruins in the background, billowing smoke, warm colors, intense emotion, vibrant, looking at viewer, mid-swing\n\nExample 3:\nUser submitted request: A business man in a blue suit, lost in a magical forest\nPrompt:  illustration, detailed, curious and confused man in a blue suit, fairy tale setting, enchanted forest, luminous mushrooms, colorful birds, path winding, sunlight filtering, dappled shadows, pastel colors, magical atmosphere, diagonal shot, looking up in wonder\n```\nComplete this user request\nUser submitted request: " + userInput + "\nPrompt: "
                 }
             ],
             temperature: 1,
@@ -608,10 +610,10 @@ async function lowBalanceMessage() {
         case (balance < 100):
             message = 'Almost out of api credits, please consider sending your server host a few bucks to keep me running <3';
             break;
-        case (balance < 400):
+        case (balance < 200):
             message = 'Consider funding your server host $1 <3';
             break;
-        case (balance >= 600):
+        default:
             break;
     }
     return message;
