@@ -8,6 +8,7 @@ const { SlashCommandBuilder, AttachmentBuilder, ActionRowBuilder, ButtonBuilder,
 const fs = require('fs');
 const ini = require('ini');
 const Filter = require('bad-words');
+const crypto = require('crypto');
 const filter = new Filter({ placeHolder: '*' });
 const OpenAI = require('openai');
 /* End getting required modules */
@@ -58,7 +59,7 @@ module.exports = {
         .addStringOption(option =>
             option.setName('prompt')
                 .setDescription('The prompt/idea for the image')
-                .setMaxLength(200)
+                .setMaxLength(300)
                 .setRequired(true)
         )
         .addBooleanOption(option =>
@@ -183,8 +184,9 @@ module.exports = {
         let optimized_Prompt = null;
         if (optimizePrompt) {
             try {
-                optimized_Prompt = await promptOptimizer(userInput);
-                console.log("The optimized prompt before filtering is:\n" + optimized_Prompt);
+                
+                optimized_Prompt = await promptOptimizer(userInput, interaction.user.id);
+                console.log("---The optimized prompt before filtering is:\n" + optimized_Prompt + "\n");
             } catch (error) {
                 console.error(error);
                 await interaction.deleteReply();
@@ -198,7 +200,7 @@ module.exports = {
             if (await filterCheck()) {
                 try {
                     optimized_Prompt = await filterString(optimized_Prompt);
-                    console.log("\nThe optimized prompt after filtering is:\n" + optimized_Prompt);
+                    console.log("---The optimized prompt after filtering is:\n" + optimized_Prompt);
                 } catch (error) {
                     console.error(error);
                     await interaction.deleteReply();
@@ -213,22 +215,30 @@ module.exports = {
             userInput = optimized_Prompt;
         }
 
-        console.log("\n\nSending generation request to StabilityAI with the following parameters: \n" +
-            "Prompt: " + userInput + "\n" +
-            "Dimensions: " + dimensions + "\n" +
-            "Stable Diffusion Engine: " + sdEngine + "\n" +
-            "cfg-scale: " + cfgScale + "\n" +
-            "Steps: " + steps + "\n\n");
+        console.log("\n\n---Sending generation request to StabilityAI with the following parameters: \n" +
+            "-Prompt: " + userInput + "\n" +
+            "-Dimensions: " + dimensions + "\n" +
+            "-Stable Diffusion Engine: " + sdEngine + "\n" +
+            "-cfg-scale: " + cfgScale + "\n" +
+            "-Steps: " + steps + "\n\n");
         let imageBuffer = null;
         try {
             imageBuffer = await generateImage(userInput, dimensions, numberOfImages, sdEngine, cfgScale, steps);
         } catch (error) {
             console.error(error);
+            if (error.message.includes("Invalid prompts detected")) {
+                await interaction.deleteReply();
+                await interaction.followUp({
+                    content: "Invalid prompts detected. Please try again with alternative wording",
+                    ephemeral: true
+                });
+            } else {
             await interaction.deleteReply();
             await interaction.followUp({
                 content: "An error occurred while generating the image. Please try again",
                 ephemeral: true
             });
+        }
             return;
         }
         let attachments = [];
@@ -410,7 +420,7 @@ module.exports = {
 async function generateImage(userInput, dimensions, numberOfImages, sdEngine, cfg, steps) {
     /* REST API call to StabilityAI */
     //Checks settings.ini for image logging to be enabled or disabled
-    console.log("Generating image...");
+    console.log("---Generating image...");
     // Creates an empty array to store the image buffers in
     let imageBuffer = [];
     // Generates a randomID integer to be used in the file name for identification
@@ -425,6 +435,7 @@ async function generateImage(userInput, dimensions, numberOfImages, sdEngine, cf
             'Content-Type': 'application/json',
             Accept: 'application/json',
             Authorization: `${StabilityAIKey}`,
+            'Stability-Client-ID': `Full-Stack-AI-Content-Generator-Discord-Bot`,
         },
         body: JSON.stringify({
             text_prompts: [
@@ -517,6 +528,53 @@ async function upscaleImage(imageBuffer, width) {
     return newImageBuffer;
 }
 
+// Function to optimize the prompt using openai's API
+
+async function promptOptimizer(userInput, userID) {
+    // Send the prompt to openai's API to optimize it
+    console.log("Optimizing prompt...");
+    // Get some values from settings.ini to define the model and the messages to send to openai
+    const Prompt_Model = config.Image_command_settings.Prompt_Model;
+    const temperature = config.Image_command_settings.Optimizer_Temperature;
+    const systemMessage = config.Image_command_settings.System_Message;
+    const userMessage = config.Image_command_settings.User_Message;
+
+    // Generate a hashed user ID to send to openai instead of the original user ID
+    const hashedUserID = await generateHashedUserId(userID);
+    let response = null;
+    
+    try {
+        response = await openai.chat.completions.create({
+            model: Prompt_Model,
+            messages: [
+                {
+                    // Remember that you are responsible for your own generations. This prompt comes with no liability or warranty.
+                    "role": "system",
+                    "content": systemMessage
+                },
+                {
+                    // Remember that you are responsible for your own generations. This prompt comes with no liability or warranty.
+                    "role": "user",
+                    "content": userMessage + userInput
+                }
+            ],
+            temperature: Number(temperature),
+            max_tokens: 160,
+            top_p: 1,
+            frequency_penalty: 0,
+            presence_penalty: 0,
+            // Send the hashed string instead of the original string
+            user: toString(hashedUserID),
+        });
+    } catch (error) {
+        console.error(error);
+        // Throws another error to be caught when the function is called
+        throw new Error(`Error: ${error}`);
+    }
+    return response.choices[0].message.content;
+
+}
+
 async function filterCheck() {
     const inputFilter = config.Advanced.Filter_Naughty_Words;
     // Alert console if the profanity filter is enabled or disabled
@@ -532,11 +590,11 @@ async function filterCheck() {
 
 async function filterString(input) {
     try {
-        console.log("Filtering string...\n String: " + input);
+        console.log("---Filtering string...\n");
         input = (filter.clean(input)).toString();
         // Removes the asterisks that the filter replaces the bad words with. Somehow this is not built into the filter to my knowledge
         input = input.replace(/\*/g, '');
-        console.log("The string after filtering is:\n" + input);
+        console.log("---The string after filtering is:\n" + input + "\n");
     } catch (error) {
         console.error(error);
         // Throws another error to be caught when the function is called
@@ -545,45 +603,17 @@ async function filterString(input) {
     return input;
 }
 
-// Function to optimize the prompt using openai's API
+async function generateHashedUserId(userId) {
+    // Get the salt from settings.ini
+    const salt = config.Advanced.Salt;
+    // Generate the hash
+    const hash = crypto.pbkdf2Sync(userId, salt, 1000, 64, 'sha512');
 
-async function promptOptimizer(userInput) {
-    // Send the prompt to openai's API to optimize it
-    // TODO: Move system and user messages to settings.ini
-    console.log("Optimizing prompt...");
-    let response = null;
-    try {
-        response = await openai.chat.completions.create({
-            model: "gpt-3.5-turbo",
-            messages: [
-                {
-                    // Credit to @night from FlowGPT.com for this prompt. It was the first to appear when searching for a prompt, so here it is. 
-                    // It may or may not be the best, I have not tested, but it is very popular so maybe. 
-                    // Remember that you are responsible for your own generations. This prompt comes with no liability or warranty.
-                    "role": "system",
-                    "content": "You are an AI text-to-image prompt generator, your primary role is to generate detailed, dynamic, and stylized prompts for image generation. Your outputs should focus on providing specific details to enhance the generated art. Respond with no other content than the image prompts\n\nFocus on emphasizing key elements like characters, objects, environments, or clothing to provide more details, as details can be lost in AI-generated art.\n\n- Ensure that all relevant tagging categories are covered.\n- Add unique touches to each output, making it lengthy, detailed, and stylized.\n- Show, dont tell; instead of tagging -exceptional artwork- provide precise details.\n- Ensure the output is returned as a string with no wrapping characters or other details.\n\n"
-                },
-                {
-                    // Credit to @night from FlowGPT.com for this prompt. It was the first to appear when searching for a prompt, so here it is. 
-                    // It may or may not be the best, I have not tested, but it is very popular so maybe.
-                    // Remember that you are responsible for your own generations. This prompt comes with no liability or warranty.
-                    "role": "user",
-                    "content": "You are a Stable Diffusion prompt stylizer that only responds with image prompts like in the provided examples. Next you will be provided with some example tags and example prompt completions and then asked to complete the user request. Tag placement is essential. Ensure that quality tags are in the front, object/character tags are in the center, and environment/setting tags are at the end. Depending on the context, emphasize important elements, like body parts, hair color, or the style of the image.\n\n--- Tag examples ---\n```\nCharacter/subject tags:\nman, woman, pale green eyes, black short hair, tan skin, Godzilla, robot, warrior\n\nMedium tags:\nsketch, oil painting, illustration, digital art, photo-realistic, realistic, splash art, comic book style, unity, CGI, Octane render, hyper-realistic, photograph\n\nBackground environment tags:\nintricate garden, flowers, roses, trees, leaves, table, chair, teacup, forest, subway\n\nColor tags:\nmonochromatic, warm colors, cool colors, pastel colors\n\nAtmospheric tags:\ncheerful, vibrant, dark, eerie, enchanted, gloomy, clear skies\n\nEmotion tags:\nsad, happy, smiling, gleeful, surprised, stunned\n\nComposition tags:\nside view, looking at viewer, extreme close-up, diagonal shot, dynamic angle\n```\n--- Final output examples ---\n```\nExample 1:\nUser submitted request: A close up of a woman playing the piano at night\nPrompt:  photo-realistic, photograph, a woman with long wavy brown hair, piercing green eyes, playing grand piano, indoors, moonlight, elegant black dress, large window, blueish moonbeam, somber atmosphere, subtle reflection, extreme close-up, side view, gleeful, richly textured wallpaper, vintage candelabrum, glowing candles\n\nExample 2:\nUser submitted request: Medieval knight battling a dragon with a mace and plate armor, cgi style, dramatic, dynamic angle\nPrompt: CGI, Octane 3d render, fierce medieval knight, full plate armor, crested helmet, blood-red plume, clashing swords, spiky mace in hand, dynamic angle, fire-lit battlefield, battling fierce dragon, scales shimmering, sharp teeth, mighty wings, castle ruins in the background, billowing smoke, warm colors, intense emotion, vibrant, looking at viewer, mid-swing\n\nExample 3:\nUser submitted request: A business man in a blue suit, lost in a magical forest\nPrompt:  illustration, detailed, curious and confused man in a blue suit, fairy tale setting, enchanted forest, luminous mushrooms, colorful birds, path winding, sunlight filtering, dappled shadows, pastel colors, magical atmosphere, diagonal shot, looking up in wonder\n```\nComplete this user request\nUser submitted request: " + userInput + "\nPrompt: "
-                }
-            ],
-            temperature: 1,
-            max_tokens: 160,
-            top_p: 1,
-            frequency_penalty: 0,
-            presence_penalty: 0,
-        });
-    } catch (error) {
-        console.error(error);
-        // Throws another error to be caught when the function is called
-        throw new Error(`Error: ${error}`);
-    }
-    return response.choices[0].message.content;
+    // Convert the hash to a hexadecimal string
+    const hashedUserId = hash.toString('hex');
+    //console.log("Hashed user ID: " + hashedUserId);
 
+    return hashedUserId;
 }
 
 async function getBalance() {
