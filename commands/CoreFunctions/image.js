@@ -14,24 +14,22 @@ const OpenAI = require('openai');
 /* End getting required modules */
 
 /* Some global variables for ease of access */
-const apiHost = process.env.API_HOST || 'https://api.stability.ai';
+const apiHost = 'https://api.stability.ai';
+
+// File paths
+const SETTINGS_FILE_PATH = './settings.ini';
+const API_KEYS_FILE_PATH = './api_keys.ini';
 
 /* Acquiring Global values */
-//parse the settings.ini file to get the values
-const config = ini.parse(fs.readFileSync('./settings.ini', 'utf-8'));
+const config = getIniFileContent(SETTINGS_FILE_PATH);
+const apiKeys = getIniFileContent(API_KEYS_FILE_PATH);
 
-// Parse the api_keys.ini file to get the API key for StabilityAI and OpenAI
-const apiKeys = ini.parse(fs.readFileSync('./api_keys.ini', 'utf-8'));
+// Validate API keys
+validateApiKeys(apiKeys);
+
 const StabilityAIKey = apiKeys.Keys.StabilityAI;
-if (StabilityAIKey == "") {
-    throw new Error("The Stability.ai API key is not set. Please set it in the api_keys.ini file");
-}
 const openAIKey = apiKeys.Keys.OpenAI;
-if (openAIKey == "") {
-    throw new Error("The OpenAI API key is not set. Please set it in the api_keys.ini file");
-}
-const openai = new OpenAI({apiKey: openAIKey});
-
+const openai = new OpenAI({ apiKey: openAIKey });
 // This is a profanity filter that will prevent the bot from passing profanity and other rude words to the generator
 // It can be enabled or disabled in the config.json file
 if (filterCheck()) {
@@ -145,55 +143,41 @@ module.exports = {
         }
         // Split out the width to check if it is over X during upscaling
         let width = parseInt(dimensions.split('x')[0]);
+
         // Prompt filtering
-        if (await filterCheck()) {
-            try {
+        try {
+            if (await filterCheck()) {
                 userInput = await filterString(userInput);
-            } catch (error) {
-                console.error(error);
-                await interaction.deleteReply();
-                await interaction.followUp({
-                    content: "An error occurred while filtering the prompt. Please try again",
-                    ephemeral: true
-                });
-                return;
             }
+        } catch (error) {
+            console.error(error);
+            deleteAndFollowUpEphemeral(interaction, "An error occurred while filtering the prompt. Please try again");
+            return;
         }
 
         /* Image generation */
 
         // Check if out of API credits
         try {
-            if (await getBalance() < 2 * numberOfImages) { //current SDXL price is 1.6-2 credits per image
-                await interaction.deleteReply();
-                await interaction.followUp({
-                    content: 'Out of API credits! Please consider donating to your server to keep this bot running!',
-                    ephemeral: true
-                });
+            if (await getBalance() < 0.2 * numberOfImages) { //current SDXL price is 0.2 credits per image
+                deleteAndFollowUpEphemeral(interaction, 'Out of API credits! Please consider donating to your server to keep this bot running!');
+                return;
             }
         } catch (error) {
             console.error(error);
-            await interaction.deleteReply();
-            await interaction.followUp({
-                content: "An error occurred while fetching the API balance. Please try again",
-                ephemeral: true
-            });
+            deleteAndFollowUpEphemeral(interaction, "An error occurred while fetching the API balance. Please try again");
             return;
         }
         // Optimize the prompt if the user has selected to do so
         let optimized_Prompt = null;
         if (optimizePrompt) {
             try {
-                
+
                 optimized_Prompt = await promptOptimizer(userInput, interaction.user.id);
                 console.log("---The optimized prompt before filtering is:\n" + optimized_Prompt + "\n");
             } catch (error) {
                 console.error(error);
-                await interaction.deleteReply();
-                await interaction.followUp({
-                    content: "An error occurred while optimizing the prompt. Please try again",
-                    ephemeral: true
-                });
+                deleteAndFollowUpEphemeral(interaction, "An error occurred while optimizing the prompt. Please try again");
                 return;
             }
             // Filter the returned optimized prompt. Just in case the AI is unhappy today
@@ -203,11 +187,7 @@ module.exports = {
                     console.log("---The optimized prompt after filtering is:\n" + optimized_Prompt);
                 } catch (error) {
                     console.error(error);
-                    await interaction.deleteReply();
-                    await interaction.followUp({
-                        content: "An error occurred while filtering the prompt after optimization. Please try again",
-                        ephemeral: true
-                    });
+                    deleteAndFollowUpEphemeral(interaction, "An error occurred while filtering the prompt after optimization. Please try again");
                     return;
                 }
             }
@@ -227,18 +207,10 @@ module.exports = {
         } catch (error) {
             console.error(error);
             if (error.message.includes("Invalid prompts detected")) {
-                await interaction.deleteReply();
-                await interaction.followUp({
-                    content: "Invalid prompts detected. Please try again with alternative wording",
-                    ephemeral: true
-                });
+                deleteAndFollowUpEphemeral(interaction, "Invalid prompts detected. Please try again with alternative wording");
             } else {
-            await interaction.deleteReply();
-            await interaction.followUp({
-                content: "An error occurred while generating the image. Please try again",
-                ephemeral: true
-            });
-        }
+                deleteAndFollowUpEphemeral(interaction, "An error occurred while generating the image. Please try again");
+            }
             return;
         }
         let attachments = [];
@@ -293,17 +265,11 @@ module.exports = {
             // Check if out of API credits
             try {
                 if (await getBalance() < 2 * numberOfImages) { //current SDXL price is 1.6-2 credits per image
-                    await interaction.followUp({
-                        content: 'Out of API credits! Please consider donating to your server to keep this bot running!',
-                        ephemeral: true
-                    });
+                    followUpEphemeral(interaction, "Out of API credits! Please consider donating to your server to keep this bot running!");
                 }
             } catch (error) {
                 console.error(error);
-                await interaction.followUp({
-                    content: "An error occurred while fetching the API balance. Please try again",
-                    ephemeral: true
-                });
+                followUpEphemeral(interaction, "An error occurred while fetching the API balance. Please try again");
                 return;
             }
             // Regenerate the image and update the reply
@@ -311,10 +277,7 @@ module.exports = {
                 imageBuffer = await generateImage(userInput, dimensions, numberOfImages, sdEngine, cfgScale, steps);
             } catch (error) {
                 console.error(error);
-                await interaction.followUp({
-                    content: "An error occurred while regenerating the image.",
-                    ephemeral: true
-                });
+                followUpEphemeral(interaction, "An error occurred while regenerating the image. Please try again");
                 return;
             }
             // Updates the width back the the base that was defined for the next upscale for checking the max width
@@ -359,17 +322,11 @@ module.exports = {
             // Check if out of API credits
             try {
                 if (await getBalance() < 0.2) { //current esrgan price is a flat 0.2 credits per image
-                    await interaction.followUp({
-                        content: 'Out of API credits! Please consider donating to your server to keep this bot running!',
-                        ephemeral: true
-                    });
+                    followUpEphemeral(interaction, "Out of API credits! Please consider donating to your server to keep this bot running!");
                 }
             } catch (error) {
                 console.error(error);
-                await interaction.followUp({
-                    content: "An error occurred while fetching the API balance. Please try again",
-                    ephemeral: true
-                });
+                followUpEphemeral(interaction, "An error occurred while fetching the API balance. Please try again");
                 return;
             }
             // Upscale the most recent image and update the reply
@@ -529,7 +486,6 @@ async function upscaleImage(imageBuffer, width) {
 }
 
 // Function to optimize the prompt using openai's API
-
 async function promptOptimizer(userInput, userID) {
     // Send the prompt to openai's API to optimize it
     console.log("Optimizing prompt...");
@@ -542,7 +498,7 @@ async function promptOptimizer(userInput, userID) {
     // Generate a hashed user ID to send to openai instead of the original user ID
     const hashedUserID = await generateHashedUserId(userID);
     let response = null;
-    
+
     try {
         response = await openai.chat.completions.create({
             model: Prompt_Model,
@@ -572,9 +528,9 @@ async function promptOptimizer(userInput, userID) {
         throw new Error(`Error: ${error}`);
     }
     return response.choices[0].message.content;
-
 }
 
+// Function to check if the profanity filter is enabled or disabled from the settings.ini file
 async function filterCheck() {
     const inputFilter = config.Advanced.Filter_Naughty_Words;
     // Alert console if the profanity filter is enabled or disabled
@@ -588,6 +544,8 @@ async function filterCheck() {
     }
 }
 
+// Function to filter the prompt for profanity and other words provided in node_modules/bad-words/lib/lang.json file
+// TODO: Add a section to add custom words to the filter in the settings config that will be imported here
 async function filterString(input) {
     try {
         console.log("---Filtering string...\n");
@@ -603,6 +561,9 @@ async function filterString(input) {
     return input;
 }
 
+// Function to generate a hashed user ID to send to openai instead of the original user ID
+// This is to protect the users privacy and to help incase of policy violations with OpenAI
+// TODO: Add a setting to disable this in the settings config file
 async function generateHashedUserId(userId) {
     // Get the salt from settings.ini
     const salt = config.Advanced.Salt;
@@ -616,6 +577,7 @@ async function generateHashedUserId(userId) {
     return hashedUserId;
 }
 
+// Gets the API balance from StabilityAI
 async function getBalance() {
     const url = `${apiHost}/v1/user/balance`
     const response = await fetch(url, {
@@ -633,6 +595,7 @@ async function getBalance() {
     return balance.credits;
 }
 
+// Function to inject a message into what is being sent if they are low on API credits
 async function lowBalanceMessage() {
     const balance = await getBalance();
     let message = '';
@@ -649,6 +612,7 @@ async function lowBalanceMessage() {
     return message;
 }
 
+// Check if the user wants to save the images to disk or not
 async function saveToDiskCheck() {
     const saveImages = config.Advanced.Save_Images;
     if (saveImages == 'true' || saveImages == 'True' || saveImages == 'TRUE') {
@@ -660,6 +624,7 @@ async function saveToDiskCheck() {
     }
 }
 
+// Random ID generator for image file names
 const randomID = {
     id: null,
     generate: function () {
@@ -673,4 +638,46 @@ const randomID = {
         return this.id;
     }
 };
+
+// Function to validate API keys //
+function validateApiKeys(apiKeys) {
+    if (apiKeys.Keys.StabilityAI == "") {
+        throw new Error("The API key is not set. Please set it in the file");
+    }
+    if (apiKeys.Keys.OpenAI == "") {
+        throw new Error("The API key is not set. Please set it in the file");
+    }
+}
+
+// Helper function to read and parse ini files
+function getIniFileContent(filePath) {
+    return ini.parse(fs.readFileSync(filePath, 'utf-8'));
+}
+
+// Deletes the original reply and follows up with a new ephemeral one. Mostly used for error handling
+async function deleteAndFollowUpEphemeral(interaction, message) {
+    await interaction.deleteReply();
+    await interaction.followUp({
+        content: message,
+        ephemeral: true
+    });
+}
+
+// Follows up with a new ephemeral message. Mostly used for error handling
+async function followUpEphemeral(interaction, message) {
+    await interaction.deleteReply();
+    await interaction.followUp({
+        content: message,
+        ephemeral: true
+    });
+}
+
+// Follows up with a new message. Mostly used for error handling
+async function followUp(interaction, message) {
+    await interaction.deleteReply();
+    await interaction.followUp({
+        content: message,
+        ephemeral: true
+    });
+}
 /* End of functions */
