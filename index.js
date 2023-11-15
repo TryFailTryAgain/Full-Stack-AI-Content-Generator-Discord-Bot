@@ -46,49 +46,6 @@ for (const file of eventFiles) {
 }
 /* End Events Loading */
 
-
-// Actions/events/commands setup to be recognized by the bot
-
-// When the client is ready, run this code (only once)
-// We use 'c' for the event parameter to keep it separate from the already defined 'client'
-client.once(Events.ClientReady, c => {
-	console.log(`Ready! Logged in as ${c.user.tag}`);
-});
-
-client.on("ready", () => {
-	console.log("I am ready!");
-});
-
-// Logs interactions that are't chats
-client.on(Events.InteractionCreate, interaction => {
-	if (!interaction.isChatInputCommand()) return;
-	console.log(interaction);
-});
-
-// Grabs slash command interactions and executes them
-client.on(Events.InteractionCreate, async interaction => {
-	if (!interaction.isChatInputCommand()) return;
-
-	const command = interaction.client.commands.get(interaction.commandName);
-
-	// Log the error is the /command sent doesn't exist on the server
-	if (!command) {
-		console.error(`No command matching ${interaction.commandName} was found.`);
-		return;
-	}
-	// Attempt to execute the command
-	try {
-		await command.execute(interaction, client);
-	} catch (error) { //catch any command errors
-		console.error(error);
-		if (interaction.replied || interaction.deferred) {
-			await interaction.followUp({ content: 'There was an error while executing this command!', ephemeral: true });
-		} else {
-			await interaction.reply({ content: 'There was an error while executing this command!', ephemeral: true });
-		}
-	}
-});// End of actions/events/commands setup
-
 // Login to Discord with bot client's token
 client.login(token);
 
