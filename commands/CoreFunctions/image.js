@@ -94,7 +94,7 @@ module.exports = {
                 .setRequired(false)
                 .addChoices(
                     { name: 'SDXL 1.0', value: 'stable-diffusion-xl-1024-v1-0' },
-                    { name: 'SD 1.5', value: 'stable-diffusion-v1-5' },
+                    { name: 'SD 1.6', value: 'stable-diffusion-v1-6' },
                 )
         )
         .addIntegerOption(option =>
@@ -137,8 +137,8 @@ module.exports = {
         let sdEngine = interaction.options.getString('stable-diffusion-model') || 'stable-diffusion-xl-1024-v1-0';
         let cfgScale = interaction.options.getInteger('cfg-scale') || 7;
         let steps = interaction.options.getInteger('steps') || 35;
-        // Detects if SD 1.5 is selected but the resolution was not manually set. Override its default to 512x512 as it is terrible at 1024x1024
-        if (sdEngine == 'stable-diffusion-v1-5' && dimensions == '1024x1024') {
+        // Detects if SD 1.6 is selected but the resolution was not manually set. Override its default to 512x512 as it is terrible at 1024x1024
+        if (sdEngine == 'stable-diffusion-v1-6' && dimensions == '1024x1024') {
             dimensions = '512x512';
         }
         // Split out the width to check if it is over X during upscaling
@@ -264,7 +264,7 @@ module.exports = {
             });
             // Check if out of API credits
             try {
-                if (await getBalance() < 2 * numberOfImages) { //current SDXL price is 1.6-2 credits per image
+                if (await getBalance() < 0.34 * numberOfImages) { //current SDXL price is 0.2-0.5 credits per image on average
                     followUpEphemeral(interaction, "Out of API credits! Please consider donating to your server to keep this bot running!");
                 }
             } catch (error) {
@@ -450,7 +450,7 @@ async function upscaleImage(imageBuffer, width) {
 
     // Check if the width if over 2048px
     if (width >= 2048) {
-        throw new Error("The image is too large to upscale. Please use an image that is 2048px or smaller");
+        throw new Error("The image is too large to upscale. Please use an image that is smaller than 2048px tall or wide");
     }
     // Creates the form data that contains the image, width, file type, and authorization
     const formData = new FormData();
