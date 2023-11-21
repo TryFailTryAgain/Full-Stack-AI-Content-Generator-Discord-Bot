@@ -4,15 +4,18 @@
 // may be freely copied or excerpted with credit to the author.
 
 /* Getting required modules */
-const { SlashCommandBuilder, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { SlashCommandBuilder, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Events, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const fs = require('fs');
 const ini = require('ini');
 const Filter = require('bad-words');
-const crypto = require('crypto');
-const filter = new Filter({ placeHolder: '*' });
+const filter = new Filter({ placeHolder: '*' }); // Modify the character used to replace bad words
+const Crypto = require('crypto');
 const OpenAI = require('openai');
+const EventEmitter = require('events');
 /* End getting required modules */
 
+/* Getting required local files */
+const ImageChatModal = require('../../components/imageChatModal.js');
 /* Some global variables for ease of access */
 const apiHost = 'https://api.stability.ai';
 
@@ -57,7 +60,7 @@ module.exports = {
         .addStringOption(option =>
             option.setName('prompt')
                 .setDescription('The prompt/idea for the image')
-                .setMaxLength(300)
+                .setMaxLength(500)
                 .setRequired(true)
         )
         .addBooleanOption(option =>
@@ -118,12 +121,19 @@ module.exports = {
                     { name: '60', value: 60 },
                 )
                 .setRequired(false)
+        )
+        .addIntegerOption(option =>
+            option.setName('seed')
+                .setDescription('The seed number to use for the image. Defaults to random')
+                .setMinValue(1)
+                .setMaxValue(4294967295)
+                .setRequired(false)
         ),
 
     /* End of the command framing */
 
     /* Start of the command functional execution */
-    async execute(interaction) {
+    async execute(interaction, client) {
         // Responds to the command to prevent discord timeout and this will display that the bot is thinking
         // Editing with .editReply will remove the loading message and replace it with the new message
         await interaction.deferReply();
@@ -137,6 +147,7 @@ module.exports = {
         let sdEngine = interaction.options.getString('stable-diffusion-model') || 'stable-diffusion-xl-1024-v1-0';
         let cfgScale = interaction.options.getInteger('cfg-scale') || 7;
         let steps = interaction.options.getInteger('steps') || 35;
+        let seed = interaction.options.getInteger('seed') || await genSeed();
         // Detects if SD 1.6 is selected but the resolution was not manually set. Override its default to 512x512 as it is terrible at 1024x1024
         if (sdEngine == 'stable-diffusion-v1-6' && dimensions == '1024x1024') {
             dimensions = '512x512';
@@ -172,7 +183,6 @@ module.exports = {
         let optimized_Prompt = null;
         if (optimizePrompt) {
             try {
-
                 optimized_Prompt = await promptOptimizer(userInput, interaction.user.id);
                 console.log("---The optimized prompt before filtering is:\n" + optimized_Prompt + "\n");
             } catch (error) {
@@ -184,7 +194,6 @@ module.exports = {
             if (await filterCheck()) {
                 try {
                     optimized_Prompt = await filterString(optimized_Prompt);
-                    console.log("---The optimized prompt after filtering is:\n" + optimized_Prompt);
                 } catch (error) {
                     console.error(error);
                     deleteAndFollowUpEphemeral(interaction, "An error occurred while filtering the prompt after optimization. Please try again");
@@ -195,15 +204,10 @@ module.exports = {
             userInput = optimized_Prompt;
         }
 
-        console.log("\n\n---Sending generation request to StabilityAI with the following parameters: \n" +
-            "-Prompt: " + userInput + "\n" +
-            "-Dimensions: " + dimensions + "\n" +
-            "-Stable Diffusion Engine: " + sdEngine + "\n" +
-            "-cfg-scale: " + cfgScale + "\n" +
-            "-Steps: " + steps + "\n\n");
+        // Generate the image
         let imageBuffer = null;
         try {
-            imageBuffer = await generateImage(userInput, dimensions, numberOfImages, sdEngine, cfgScale, steps);
+            imageBuffer = await generateImage(userInput, dimensions, numberOfImages, sdEngine, cfgScale, steps, seed);
         } catch (error) {
             console.error(error);
             if (error.message.includes("Invalid prompts detected")) {
@@ -213,13 +217,14 @@ module.exports = {
             }
             return;
         }
+        // Adds the generated images to the message attachments that will be returned to discord
         let attachments = [];
         for (let i = 0; i < imageBuffer.length; i++) {
             attachments.push(new AttachmentBuilder(imageBuffer[i]));
         }
+        /* End of image generation */
 
-
-        // Makes the ActionRow and adds the regen and upscale buttons to it
+        // Makes the ActionRow and adds the regen, upscale, and chat refinement buttons to it
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId('regenerate')
@@ -230,22 +235,28 @@ module.exports = {
                 .setCustomId('upscale')
                 .setLabel('Upscale')
                 .setStyle(ButtonStyle.Primary)
-                .setEmoji('🔍')
+                .setEmoji('🔍'),
+            new ButtonBuilder()
+                .setCustomId('chatRefinement')
+                .setLabel('Chat Refinement')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('💬')
         );
         // Check if multiple images were generated in the request as we can only upscale one at a time
         // If > 1 are generated, Disable the upscale button
         // TODO: Either add an /Upscale command and allow the user to supply an image or add a selector to select which image to upscale
         if (numberOfImages > 1) {
             row.components[1].setDisabled(true);
+            row.components[2].setDisabled(true);
         }
 
-
-        // Edit the reply to show the generated image and the button
+        // Edit the reply to show the generated image and the buttons
         const reply = await interaction.editReply({
             content: await lowBalanceMessage(),
             files: attachments,
             components: [row],
         });
+
 
         /* Regenerate button handling */
         // Create an interaction collector to listen for button interactions
@@ -257,6 +268,7 @@ module.exports = {
             // Disable the buttons to prevent double actions
             row.components[0].setDisabled(true);
             row.components[1].setDisabled(true);
+            row.components[2].setDisabled(true);
             // Update to show the disabled button but keep everything else as is
             // This may be a silly implementation but it works and the other methods I tried... work less
             await i.update({
@@ -272,9 +284,11 @@ module.exports = {
                 followUpEphemeral(interaction, "An error occurred while fetching the API balance. Please try again");
                 return;
             }
+            // Generate a new seed for new images
+            seed = await genSeed();
             // Regenerate the image and update the reply
             try {
-                imageBuffer = await generateImage(userInput, dimensions, numberOfImages, sdEngine, cfgScale, steps);
+                imageBuffer = await generateImage(userInput, dimensions, numberOfImages, sdEngine, cfgScale, steps, seed);
             } catch (error) {
                 console.error(error);
                 followUpEphemeral(interaction, "An error occurred while regenerating the image. Please try again");
@@ -289,13 +303,13 @@ module.exports = {
             }
             // Re-enable the button now that we have the new image to update with
             row.components[0].setDisabled(false);
-            // Check if multiple images were generated in the request as we can only upscale one at a time
+            // Check if multiple images were generated in the request as we can only upscale or refine one at a time
             // TODO: see above todo after action row creation
-            if (numberOfImages > 1) {
-                row.components[1].setDisabled(true);
-            } else {
+            if (numberOfImages <= 1) {
                 row.components[1].setDisabled(false);
+                row.components[2].setDisabled(false);
             }
+
             await i.editReply({
                 content: await lowBalanceMessage(),
                 files: attachments,
@@ -303,6 +317,7 @@ module.exports = {
             });
         });
         /* End of regenerate button handling */
+
 
         /* Upscale button handling */
         // Builds the collector for the upscale button
@@ -314,6 +329,7 @@ module.exports = {
             // Disables the buttons to prevent more clicks
             row.components[0].setDisabled(true);
             row.components[1].setDisabled(true);
+            row.components[2].setDisabled(true);
             // Update to show the disabled button but keep everything else as is
             await i.update({
                 components: [row],
@@ -350,6 +366,7 @@ module.exports = {
             // Re-enables the buttons now that we have the new image to update with
             row.components[0].setDisabled(false);
             row.components[1].setDisabled(false);
+            row.components[2].setDisabled(false);
             // Updates the reply with the new image
             await i.editReply({
                 content: "Upscaled to " + width + "px wide! " + await lowBalanceMessage(),
@@ -357,27 +374,82 @@ module.exports = {
                 components: [row],
             });
         });
+        /* End of upscale button handling */
+
+
+        /* Chat refinement button handling */
+        // Create the modal
+        const chatRefineModal = ImageChatModal.createImageChatModal();
+
+        // Builds the collector for the chat refinement button
+        const chatRefinementCollectorFilter = i => i.customId === 'chatRefinement' && i.user.id === interaction.user.id;
+        const chatRefinementCollector = reply.createMessageComponentCollector({ filter: chatRefinementCollectorFilter, time: 300_000 });
+
+        // When the chat refinement button is clicked, open the modal and handle the submission
+        chatRefinementCollector.on('collect', async (i) => {
+            try {
+                // Show the modal first
+                await i.showModal(chatRefineModal);
+
+                // Wait for the modal submit interaction
+                const chatRefinementRequest = await ImageChatModal.waitForModalSubmit(i);
+                console.log(chatRefinementRequest);
+
+                // set the userInput aka the prompt to the new adapted prompt
+                userInput = await adaptImagePrompt(userInput, chatRefinementRequest, i.user.id);
+                // Pass all the parameters to the image generation function with identical seed so images are closer to the original
+                try {
+                    imageBuffer = await generateImage(userInput, dimensions, numberOfImages, sdEngine, cfgScale, steps, seed);
+                } catch (error) {
+                    console.error(error);
+                    followUpEphemeral(interaction, "An error occurred while generating the refined the image. Please try again");
+                    return;
+                }
+                // clears out the old attachments and build a new one with the image to be sent to discord
+                attachments = [];
+                for (let j = 0; j < imageBuffer.length; j++) {
+                    attachments.push(new AttachmentBuilder(imageBuffer[j]));
+                }
+                // Sends the new image to discord
+                await i.editReply({
+                    content: await lowBalanceMessage(),
+                    files: attachments,
+                    components: [row],
+                });
+            } catch (error) {
+                // Handle errors, such as a timeout or other issues
+                console.error(error);
+                followUpEphemeral(interaction, "An error occurred while processing the chat refinement request. Please try again");
+            }
+        });
 
         // When the collectors time runs out, disable the buttons
         collector.on('end', async () => {
             row.components[0].setDisabled(true);
             row.components[1].setDisabled(true);
+            row.components[2].setDisabled(true);
             await interaction.editReply({
                 components: [row],
             });
         });
-        /* End of upscale button handling */
     }
 };
-/* End of image generation */
 
 /* Functions */
 // Documentation:
 // https://platform.stability.ai/docs/api-reference#tag/v1generation/operation/textToImage
-async function generateImage(userInput, dimensions, numberOfImages, sdEngine, cfg, steps) {
+async function generateImage(userInput, dimensions, numberOfImages, sdEngine, cfg, steps, seed) {
     /* REST API call to StabilityAI */
     //Checks settings.ini for image logging to be enabled or disabled
-    console.log("---Generating image...");
+    console.log("---Generating image---");
+    console.log("\n\n---Sending generation request to StabilityAI with the following parameters: \n" +
+            "-Prompt: " + userInput + "\n" +
+            "-Dimensions: " + dimensions + "\n" +
+            "-Stable Diffusion Engine: " + sdEngine + "\n" +
+            "-cfg-scale: " + cfg + "\n" +
+            "-Steps: " + steps + "\n" +
+            "-Seed: " + seed + "\n\n");
+
     // Creates an empty array to store the image buffers in
     let imageBuffer = [];
     // Generates a randomID integer to be used in the file name for identification
@@ -406,6 +478,7 @@ async function generateImage(userInput, dimensions, numberOfImages, sdEngine, cf
             height: height,
             steps: steps,
             samples: numberOfImages,
+            seed: seed,
         }),
     })
         .then(async (response) => {
@@ -468,7 +541,6 @@ async function upscaleImage(imageBuffer, width) {
             body: formData,
         }
     );
-
     if (!response.ok) {
         throw new Error(`Non-200 response: ${await response.text()}`);
     }
@@ -515,7 +587,7 @@ async function promptOptimizer(userInput, userID) {
                 }
             ],
             temperature: Number(temperature),
-            max_tokens: 160,
+            max_tokens: 300,
             top_p: 1,
             frequency_penalty: 0,
             presence_penalty: 0,
@@ -529,6 +601,59 @@ async function promptOptimizer(userInput, userID) {
     }
     return response.choices[0].message.content;
 }
+
+
+// Function to adapt the image prompt used for image generation to align with the users input as requested via chat refinement
+async function adaptImagePrompt(currentPrompt, chatRefinementRequest, userID) {
+    console.log("Adapting the prompt based on chat request...");
+    // Get some values from settings.ini to define the model and the messages to send to openai
+    const Prompt_Model = config.Image_command_settings.Prompt_Model;
+    const temperature = config.Image_command_settings.Optimizer_Temperature;
+    const systemMessage = config.Image_command_settings.ChatRefinementSystemMessage;
+    const userMessage = config.Image_command_settings.ChatRefinementUserMessage;
+
+    if( await filterCheck() ) chatRefinementRequest = await filterString(chatRefinementRequest);
+    // Generate a hashed user ID to send to openai instead of the original user ID
+    const hashedUserID = await generateHashedUserId(userID);
+    let response = null;
+    try {
+        response = await openai.chat.completions.create({
+            model: Prompt_Model,
+            messages: [
+                {
+                    // Remember that you are responsible for your own generations. This prompt comes with no liability or warranty.
+                    "role": "system",
+                    "content": systemMessage
+                },
+                {
+                    // Remember that you are responsible for your own generations. This prompt comes with no liability or warranty.
+                    "role": "user",
+                    "content": userMessage.replace('[currentPrompt]', currentPrompt).replace('[chatRefinementRequest]', chatRefinementRequest)
+                }
+            ],
+            temperature: Number(temperature),
+            max_tokens: 300,
+            top_p: 1,
+            frequency_penalty: 0,
+            presence_penalty: 0,
+            // Send the hashed string instead of the original string
+            user: toString(hashedUserID),
+        });
+    } catch (error) {
+        console.error(error);
+        // Throws another error to be caught when the function is called
+        throw new Error(`Error: ${error}`);
+    }
+    // Filter the response if the profanity filter is enabled just in case the ai is having a bad day
+    refinedPrompt = response.choices[0].message.content;
+    if( await filterCheck() ) refinedPrompt = await filterString(response.choices[0].message.content);
+
+    console.log("Original prompt: \n" + currentPrompt + "\n" +
+    "Refined prompt:  \n" + refinedPrompt + "\n");
+
+    return refinedPrompt;
+}
+
 
 // Function to check if the profanity filter is enabled or disabled from the settings.ini file
 async function filterCheck() {
@@ -568,7 +693,7 @@ async function generateHashedUserId(userId) {
     // Get the salt from settings.ini
     const salt = config.Advanced.Salt;
     // Generate the hash
-    const hash = crypto.pbkdf2Sync(userId, salt, 1000, 64, 'sha512');
+    const hash = Crypto.pbkdf2Sync(userId, salt, 1000, 64, 'sha512');
 
     // Convert the hash to a hexadecimal string
     const hashedUserId = hash.toString('hex');
@@ -665,7 +790,6 @@ async function deleteAndFollowUpEphemeral(interaction, message) {
 
 // Follows up with a new ephemeral message. Mostly used for error handling
 async function followUpEphemeral(interaction, message) {
-    await interaction.deleteReply();
     await interaction.followUp({
         content: message,
         ephemeral: true
@@ -674,10 +798,14 @@ async function followUpEphemeral(interaction, message) {
 
 // Follows up with a new message. Mostly used for error handling
 async function followUp(interaction, message) {
-    await interaction.deleteReply();
     await interaction.followUp({
         content: message,
         ephemeral: true
     });
+}
+
+// Generates a random seed for image generation
+async function genSeed() {
+    return Math.floor(Math.random() * 4294967295);
 }
 /* End of functions */
