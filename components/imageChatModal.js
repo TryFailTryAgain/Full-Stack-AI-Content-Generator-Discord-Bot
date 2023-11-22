@@ -1,3 +1,8 @@
+// File: imageChatModal.js
+// Author: TryFailTryAgain
+// Copyright (c) 2023. All rights reserved. For use in Open-Source projects this
+// may be freely copied or excerpted with credit to the author.
+
 const { ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 
 module.exports = {
@@ -22,17 +27,17 @@ module.exports = {
     waitForModalSubmit: function (interaction) {
         // Return a promise that resolves when the modal is submitted
         return new Promise((resolve, reject) => {
-            // Set up a one-time listener for the modal submit interaction
+            // Sets up a one-time listener for the modal submit interaction
             const filter = (i) => i.customId === 'chatRefineModal' && i.user.id === interaction.user.id;
             interaction.awaitModalSubmit({ filter, time: 30000 })
                 .then(modalInteraction => {
-                    // Resolve the promise with the value from the modal
+                    // Resolves the promise with the value from the modal
                     const refinementRequest = modalInteraction.fields.getTextInputValue('chatRefinement');
                     resolve(refinementRequest);
                     modalInteraction.deferUpdate();
                 })
                 .catch(error => {
-                    // Reject the promise if there's an error
+                    // Rejects the promise if there's an error
                     reject(error);
                 });
         });

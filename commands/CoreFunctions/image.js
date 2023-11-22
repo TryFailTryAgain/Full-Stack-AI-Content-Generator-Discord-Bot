@@ -403,7 +403,7 @@ module.exports = {
                 // Wait for the modal submit interaction
                 const chatRefinementRequest = await ImageChatModal.waitForModalSubmit(i);
                 console.log(chatRefinementRequest);
-                
+
 
                 // set the userInput aka the prompt to the new adapted prompt
                 userInput = await adaptImagePrompt(userInput, chatRefinementRequest, i.user.id);
