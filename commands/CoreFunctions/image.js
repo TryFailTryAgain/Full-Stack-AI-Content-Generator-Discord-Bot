@@ -390,10 +390,20 @@ module.exports = {
             try {
                 // Show the modal first
                 await i.showModal(chatRefineModal);
+                // Disables the buttons to prevent more clicks
+                row.components[0].setDisabled(true);
+                row.components[1].setDisabled(true);
+                row.components[2].setDisabled(true);
+                await i.editReply({
+                    content: await lowBalanceMessage(),
+                    files: attachments,
+                    components: [row],
+                });
 
                 // Wait for the modal submit interaction
                 const chatRefinementRequest = await ImageChatModal.waitForModalSubmit(i);
                 console.log(chatRefinementRequest);
+                
 
                 // set the userInput aka the prompt to the new adapted prompt
                 userInput = await adaptImagePrompt(userInput, chatRefinementRequest, i.user.id);
@@ -410,6 +420,10 @@ module.exports = {
                 for (let j = 0; j < imageBuffer.length; j++) {
                     attachments.push(new AttachmentBuilder(imageBuffer[j]));
                 }
+                // Re enable the buttons now that we have the new image to update with
+                row.components[0].setDisabled(false);
+                row.components[1].setDisabled(false);
+                row.components[2].setDisabled(false);
                 // Sends the new image to discord
                 await i.editReply({
                     content: await lowBalanceMessage(),
@@ -443,12 +457,12 @@ async function generateImage(userInput, dimensions, numberOfImages, sdEngine, cf
     //Checks settings.ini for image logging to be enabled or disabled
     console.log("---Generating image---");
     console.log("\n\n---Sending generation request to StabilityAI with the following parameters: \n" +
-            "-Prompt: " + userInput + "\n" +
-            "-Dimensions: " + dimensions + "\n" +
-            "-Stable Diffusion Engine: " + sdEngine + "\n" +
-            "-cfg-scale: " + cfg + "\n" +
-            "-Steps: " + steps + "\n" +
-            "-Seed: " + seed + "\n\n");
+        "-Prompt: " + userInput + "\n" +
+        "-Dimensions: " + dimensions + "\n" +
+        "-Stable Diffusion Engine: " + sdEngine + "\n" +
+        "-cfg-scale: " + cfg + "\n" +
+        "-Steps: " + steps + "\n" +
+        "-Seed: " + seed + "\n\n");
 
     // Creates an empty array to store the image buffers in
     let imageBuffer = [];
@@ -612,7 +626,7 @@ async function adaptImagePrompt(currentPrompt, chatRefinementRequest, userID) {
     const systemMessage = config.Image_command_settings.ChatRefinementSystemMessage;
     const userMessage = config.Image_command_settings.ChatRefinementUserMessage;
 
-    if( await filterCheck() ) chatRefinementRequest = await filterString(chatRefinementRequest);
+    if (await filterCheck()) chatRefinementRequest = await filterString(chatRefinementRequest);
     // Generate a hashed user ID to send to openai instead of the original user ID
     const hashedUserID = await generateHashedUserId(userID);
     let response = null;
@@ -646,10 +660,10 @@ async function adaptImagePrompt(currentPrompt, chatRefinementRequest, userID) {
     }
     // Filter the response if the profanity filter is enabled just in case the ai is having a bad day
     refinedPrompt = response.choices[0].message.content;
-    if( await filterCheck() ) refinedPrompt = await filterString(response.choices[0].message.content);
+    if (await filterCheck()) refinedPrompt = await filterString(response.choices[0].message.content);
 
     console.log("Original prompt: \n" + currentPrompt + "\n" +
-    "Refined prompt:  \n" + refinedPrompt + "\n");
+        "Refined prompt:  \n" + refinedPrompt + "\n");
 
     return refinedPrompt;
 }
