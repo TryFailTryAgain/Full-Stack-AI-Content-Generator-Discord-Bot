@@ -4,7 +4,6 @@
 // may be freely copied or excerpted with credit to the author.
 
 const { Events } = require('discord.js');
-const imageChatModal = require('../components/imageChatModal.js');
 
 module.exports = {
 	name: Events.InteractionCreate,

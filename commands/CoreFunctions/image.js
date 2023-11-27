@@ -11,7 +11,6 @@ const Filter = require('bad-words');
 const filter = new Filter({ placeHolder: '*' }); // Modify the character used to replace bad words
 const Crypto = require('crypto');
 const OpenAI = require('openai');
-const EventEmitter = require('events');
 /* End getting required modules */
 
 /* Getting required local files */
