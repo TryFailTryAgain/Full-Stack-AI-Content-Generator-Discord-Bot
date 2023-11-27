@@ -290,14 +290,14 @@ module.exports = {
             for (let i = 0; i < imageBuffer.length; i++) {
                 attachments.push(new AttachmentBuilder(imageBuffer[i]));
             }
-            // Re-enable the button now that we have the new image to update with
-            row.components[0].setDisabled(false);
             // Check if multiple images were generated in the request as we can only upscale or refine one at a time
             // TODO: see above todo after action row creation
             if (numberOfImages <= 1) {
                 row.components[1].setDisabled(false);
-                //row.components[2].setDisabled(false);
             }
+            // Re-enable the buttons that aren't affected by the number of images now that we have the new image to update with
+            row.components[0].setDisabled(false);
+            row.components[2].setDisabled(false);
 
             await i.editReply({
                 content: await lowBalanceMessage(),
@@ -734,10 +734,10 @@ async function lowBalanceMessage() {
     let message = '';
     switch (true) {
         case (balance < 100):
-            message = 'Almost out of api credits, please consider sending your server host a few bucks to keep me running <3';
+            message = 'Almost out of api credits, please consider sending your server host a few bucks to keep me running ❤️';
             break;
         case (balance < 200):
-            message = 'Consider funding your server host $1 <3';
+            message = 'Consider funding your server host $1 ❤️';
             break;
         default:
             break;
