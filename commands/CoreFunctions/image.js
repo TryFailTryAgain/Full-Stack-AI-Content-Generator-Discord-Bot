@@ -64,9 +64,9 @@ module.exports = {
                 .setRequired(true)
         )
         .addBooleanOption(option =>
-            option.setName('stylize-prompt')
-                .setDescription('Stylize-prompt the prompt using the automatic prompt stylize')
-                .setRequired(true)
+            option.setName('disable-optimization')
+                .setDescription('Disables the AI Optimization of the input prompt.')
+                .setRequired(false)
         )
         .addStringOption(option =>
             option.setName('dimensions')
@@ -141,7 +141,7 @@ module.exports = {
         // Gets the user input and other options from the command then optionally filters it if settings.ini - Filter_Naughty_Words is set to true
         // Defaults are set if the user does not provide them
         let userInput = interaction.options.getString('prompt');
-        let optimizePrompt = interaction.options.getBoolean('stylize-prompt');
+        let disableOptimizePrompt = interaction.options.getBoolean('disable-optimization') || false;
         let dimensions = interaction.options.getString('dimensions') || '1024x1024';
         let numberOfImages = interaction.options.getInteger('number-of-images') || 1;
         let sdEngine = interaction.options.getString('stable-diffusion-model') || 'stable-diffusion-xl-1024-v1-0';
@@ -179,26 +179,15 @@ module.exports = {
             deleteAndFollowUpEphemeral(interaction, "An error occurred while fetching the API balance. Please try again");
             return;
         }
-        // Optimize the prompt if the user has selected to do so
+        // Optimize the prompt unless the user has specifically asked not to
         let optimized_Prompt = null;
-        if (optimizePrompt) {
+        if (!disableOptimizePrompt) {
             try {
                 optimized_Prompt = await promptOptimizer(userInput, interaction.user.id);
-                console.log("---The optimized prompt before filtering is:\n" + optimized_Prompt + "\n");
             } catch (error) {
                 console.error(error);
                 deleteAndFollowUpEphemeral(interaction, "An error occurred while optimizing the prompt. Please try again");
                 return;
-            }
-            // Filter the returned optimized prompt. Just in case the AI is unhappy today
-            if (await filterCheck()) {
-                try {
-                    optimized_Prompt = await filterString(optimized_Prompt);
-                } catch (error) {
-                    console.error(error);
-                    deleteAndFollowUpEphemeral(interaction, "An error occurred while filtering the prompt after optimization. Please try again");
-                    return;
-                }
             }
             // Sets the user input to the new optimized prompt
             userInput = optimized_Prompt;
@@ -247,7 +236,7 @@ module.exports = {
         // TODO: Either add an /Upscale command and allow the user to supply an image or add a selector to select which image to upscale
         if (numberOfImages > 1) {
             row.components[1].setDisabled(true);
-            row.components[2].setDisabled(true);
+            //row.components[2].setDisabled(true);
         }
 
         // Edit the reply to show the generated image and the buttons
@@ -298,8 +287,8 @@ module.exports = {
             width = parseInt(dimensions.split('x')[0]);
             // Clears out the old attachments and build a new one with new images to be sent to discord
             attachments = [];
-            for (let j = 0; j < imageBuffer.length; j++) {
-                attachments.push(new AttachmentBuilder(imageBuffer[j]));
+            for (let i = 0; i < imageBuffer.length; i++) {
+                attachments.push(new AttachmentBuilder(imageBuffer[i]));
             }
             // Re-enable the button now that we have the new image to update with
             row.components[0].setDisabled(false);
@@ -307,7 +296,7 @@ module.exports = {
             // TODO: see above todo after action row creation
             if (numberOfImages <= 1) {
                 row.components[1].setDisabled(false);
-                row.components[2].setDisabled(false);
+                //row.components[2].setDisabled(false);
             }
 
             await i.editReply({
@@ -360,8 +349,8 @@ module.exports = {
             }
             // clears out the old attachments and build a new one with the image to be sent to discord
             attachments = [];
-            for (let j = 0; j < imageBuffer.length; j++) {
-                attachments.push(new AttachmentBuilder(imageBuffer[j]));
+            for (let i = 0; i < imageBuffer.length; i++) {
+                attachments.push(new AttachmentBuilder(imageBuffer[i]));
             }
             // Re-enables the buttons now that we have the new image to update with
             row.components[0].setDisabled(false);
@@ -404,7 +393,6 @@ module.exports = {
                 const chatRefinementRequest = await ImageChatModal.waitForModalSubmit(i);
                 console.log(chatRefinementRequest);
 
-
                 // set the userInput aka the prompt to the new adapted prompt
                 userInput = await adaptImagePrompt(userInput, chatRefinementRequest, i.user.id);
                 // Pass all the parameters to the image generation function with identical seed so images are closer to the original
@@ -415,10 +403,10 @@ module.exports = {
                     followUpEphemeral(interaction, "An error occurred while generating the refined the image. Please try again");
                     return;
                 }
-                // clears out the old attachments and build a new one with the image to be sent to discord
-                attachments = [];
-                for (let j = 0; j < imageBuffer.length; j++) {
-                    attachments.push(new AttachmentBuilder(imageBuffer[j]));
+                // // clears out the old attachments and build a new one with the image to be sent to discord
+                // attachments = [];
+                for (let i = 0; i < imageBuffer.length; i++) {
+                    attachments.unshift(new AttachmentBuilder(imageBuffer[i]));
                 }
                 // Re enable the buttons now that we have the new image to update with
                 row.components[0].setDisabled(false);
@@ -426,7 +414,7 @@ module.exports = {
                 row.components[2].setDisabled(false);
                 // Sends the new image to discord
                 await i.editReply({
-                    content: await lowBalanceMessage(),
+                    content: '⬅️New Image \n Original Image➡️ \n' + await lowBalanceMessage(),
                     files: attachments,
                     components: [row],
                 });
@@ -613,8 +601,14 @@ async function promptOptimizer(userInput, userID) {
         // Throws another error to be caught when the function is called
         throw new Error(`Error: ${error}`);
     }
-    return response.choices[0].message.content;
+    let optimized_Prompt = response.choices[0].message.content;
+    // Filter the returned optimized prompt. Just in case the AI is unhappy today
+    if (await filterCheck()) {
+        optimized_Prompt = await filterString(optimized_Prompt);
+    }
+    return optimized_Prompt;
 }
+
 
 
 // Function to adapt the image prompt used for image generation to align with the users input as requested via chat refinement
@@ -642,7 +636,7 @@ async function adaptImagePrompt(currentPrompt, chatRefinementRequest, userID) {
                 {
                     // Remember that you are responsible for your own generations. This prompt comes with no liability or warranty.
                     "role": "user",
-                    "content": userMessage.replace('[currentPrompt]', currentPrompt).replace('[chatRefinementRequest]', chatRefinementRequest)
+                    "content": userMessage.replace('[sdPrompt]', currentPrompt).replace('[refinementRequest]', chatRefinementRequest)
                 }
             ],
             temperature: Number(temperature),
