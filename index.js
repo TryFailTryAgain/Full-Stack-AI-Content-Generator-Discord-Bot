@@ -7,7 +7,7 @@ const { Client, Collection, Events, GatewayIntentBits } = require('discord.js');
 const { token } = require('./config.json');
 
 // Create a new client instance
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds], timeout: 120_000 });
 
 // Gets all the command files in the commands directory
 // ALL COMMANDS MUST BE WITHIN A SUBFOLDER OF THE COMMANDS FOLDER

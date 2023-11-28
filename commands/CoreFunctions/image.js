@@ -34,19 +34,10 @@ const openAIKey = apiKeys.Keys.OpenAI;
 const openai = new OpenAI({ apiKey: openAIKey });
 // This is a profanity filter that will prevent the bot from passing profanity and other rude words to the generator
 // It can be enabled or disabled in the config.json file
-if (filterCheck()) {
-    console.log("Profanity filter -- /image == ENABLED");
-} else {
-    console.log("Profanity filter -- /image == DISABLED");
-}
-// Check if images should be saved to disk or not from settings.ini
-if (saveToDiskCheck()) {
-    console.log("Save images to disk -- /image == ENABLED");
-}
-else {
-    console.log("Save images to disk -- /image == DISABLED");
-}
-
+const profanityFilterEnabled = filterCheck();
+const saveToDiskEnabled = saveToDiskCheck();
+console.log(`Profanity filter -- /image == ${profanityFilterEnabled ? 'ENABLED' : 'DISABLED'}`);
+console.log(`Save images to disk -- /image == ${saveToDiskEnabled ? 'ENABLED' : 'DISABLED'}`);
 /* End of Acquiring values */
 
 
@@ -145,7 +136,7 @@ module.exports = {
         let numberOfImages = interaction.options.getInteger('number-of-images') || 1;
         let sdEngine = interaction.options.getString('stable-diffusion-model') || 'stable-diffusion-xl-1024-v1-0';
         let cfgScale = interaction.options.getInteger('cfg-scale') || 7;
-        let steps = interaction.options.getInteger('steps') || 35;
+        let steps = interaction.options.getInteger('steps') || 40;
         let seed = interaction.options.getInteger('seed') || await genSeed();
         // Detects if SD 1.6 is selected but the resolution was not manually set. Override its default to 512x512 as it is terrible at 1024x1024
         if (sdEngine == 'stable-diffusion-v1-6' && dimensions == '1024x1024') {
@@ -169,7 +160,7 @@ module.exports = {
 
         // Check if out of API credits
         try {
-            if (await getBalance() < 0.2 * numberOfImages) { //current SDXL price is 0.2 credits per image
+            if (await getBalance() < 0.23 * numberOfImages) { //current SDXL price is 0.23 credits per image at 40 steps
                 deleteAndFollowUpEphemeral(interaction, 'Out of API credits! Please consider donating to your server to keep this bot running!');
                 return;
             }
@@ -249,7 +240,7 @@ module.exports = {
         /* Regenerate button handling */
         // Create an interaction collector to listen for button interactions
         const collectorFilter = i => i.customId === 'regenerate' && i.user.id === interaction.user.id;
-        const collector = reply.createMessageComponentCollector({ filter: collectorFilter, time: 300_000 });
+        const collector = reply.createMessageComponentCollector({ filter: collectorFilter, time: 7_200_000 }); // 2 hours
 
         // When the button is clicked, regenerate the image and update the reply
         collector.on('collect', async i => {
@@ -264,7 +255,7 @@ module.exports = {
             });
             // Check if out of API credits
             try {
-                if (await getBalance() < 0.34 * numberOfImages) { //current SDXL price is 0.2-0.5 credits per image on average
+                if (await getBalance() < 0.23 * numberOfImages) { //current SDXL price is 0.23-0.5 credits per image at 40 steps
                     followUpEphemeral(interaction, "Out of API credits! Please consider donating to your server to keep this bot running!");
                 }
             } catch (error) {
@@ -310,7 +301,7 @@ module.exports = {
         /* Upscale button handling */
         // Builds the collector for the upscale button
         const upscaleCollectorFilter = i => i.customId === 'upscale' && i.user.id === interaction.user.id;
-        const upscaleCollector = reply.createMessageComponentCollector({ filter: upscaleCollectorFilter, time: 300_000 });
+        const upscaleCollector = reply.createMessageComponentCollector({ filter: upscaleCollectorFilter, time: 7_200_000 }); // 2 hours
 
         // When the upscale button is clicked, upscale the most recent image and update the reply
         upscaleCollector.on('collect', async i => {
@@ -371,7 +362,7 @@ module.exports = {
 
         // Builds the collector for the chat refinement button
         const chatRefinementCollectorFilter = i => i.customId === 'chatRefinement' && i.user.id === interaction.user.id;
-        const chatRefinementCollector = reply.createMessageComponentCollector({ filter: chatRefinementCollectorFilter, time: 300_000 });
+        const chatRefinementCollector = reply.createMessageComponentCollector({ filter: chatRefinementCollectorFilter, time: 7_200_000 }); // 2 hours
 
         // When the chat refinement button is clicked, open the modal and handle the submission
         chatRefinementCollector.on('collect', async (i) => {
@@ -382,9 +373,9 @@ module.exports = {
                 row.components[0].setDisabled(true);
                 row.components[1].setDisabled(true);
                 row.components[2].setDisabled(true);
+                // .editReply() is used here instead of .update() because the modal being shown counts as out first interaction and .update() will throw
+                //      an error as the interaction has already been responded to
                 await i.editReply({
-                    content: await lowBalanceMessage(),
-                    files: attachments,
                     components: [row],
                 });
 
@@ -399,11 +390,13 @@ module.exports = {
                     imageBuffer = await generateImage(userInput, dimensions, numberOfImages, sdEngine, cfgScale, steps, seed);
                 } catch (error) {
                     console.error(error);
-                    followUpEphemeral(interaction, "An error occurred while generating the refined the image. Please try again");
+                    followUpEphemeral(interaction, "An error occurred while generating the refined image. Please try again");
                     return;
                 }
                 // // clears out the old attachments and build a new one with the image to be sent to discord
                 // attachments = [];
+                
+                // Slot the new images into the attachments array at the beginning so they are displayed first
                 for (let i = 0; i < imageBuffer.length; i++) {
                     attachments.unshift(new AttachmentBuilder(imageBuffer[i]));
                 }
@@ -413,14 +406,14 @@ module.exports = {
                 row.components[2].setDisabled(false);
                 // Sends the new image to discord
                 await i.editReply({
-                    content: '⬅️New Image \n Original Image➡️ \n' + await lowBalanceMessage(),
+                    content: '⬅️New Images first \n Original Images last➡️ \n' + await lowBalanceMessage(),
                     files: attachments,
                     components: [row],
                 });
             } catch (error) {
                 // Handle errors, such as a timeout or other issues
                 console.error(error);
-                followUpEphemeral(interaction, "An error occurred while processing the chat refinement request. Please try again");
+                followUpEphemeral(interaction, "An error occurred while processing the chat refinement request. Please try again or contact the bot host if this persists");
             }
         });
 
@@ -619,6 +612,7 @@ async function adaptImagePrompt(currentPrompt, chatRefinementRequest, userID) {
     const systemMessage = config.Image_command_settings.ChatRefinementSystemMessage;
     const userMessage = config.Image_command_settings.ChatRefinementUserMessage;
 
+    // Filter the input request
     if (await filterCheck()) chatRefinementRequest = await filterString(chatRefinementRequest);
     // Generate a hashed user ID to send to openai instead of the original user ID
     const hashedUserID = await generateHashedUserId(userID);
@@ -732,7 +726,7 @@ async function lowBalanceMessage() {
     const balance = await getBalance();
     let message = '';
     switch (true) {
-        case (balance < 100):
+        case (balance < 50):
             message = 'Almost out of api credits, please consider sending your server host a few bucks to keep me running ❤️';
             break;
         case (balance < 200):
