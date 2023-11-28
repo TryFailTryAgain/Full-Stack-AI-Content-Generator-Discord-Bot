@@ -22,6 +22,7 @@
     "readable-stream": "^3.6.2",
     "readable-web-to-node-stream": "^3.0.2",
     "safe-buffer": "^5.2.1",
+    "sharp": "^0.32.6",
     "streamsearch": "^1.1.0",
     "string_decoder": "^1.3.0",
     "strtok3": "^7.0.0",

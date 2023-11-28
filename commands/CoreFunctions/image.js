@@ -11,6 +11,7 @@ const Filter = require('bad-words');
 const filter = new Filter({ placeHolder: '*' }); // Modify the character used to replace bad words
 const Crypto = require('crypto');
 const OpenAI = require('openai');
+const sharp = require('sharp');
 /* End getting required modules */
 
 /* Getting required local files */
@@ -463,7 +464,7 @@ async function generateImage(userInput, dimensions, numberOfImages, sdEngine, cf
                     //      gpt-4 is not yet perfected and will need a better prompt to guide it.
                     "text": "low resolution, bad art, worst quality, lowres, blurry",
                     "weight": -1
-                  }
+                }
             ],
             // Defines the parameters for the image generation specified by the user
             cfg_scale: cfg,
@@ -481,18 +482,28 @@ async function generateImage(userInput, dimensions, numberOfImages, sdEngine, cf
             console.log("Generation completed response heard!");
             const responseJSON = await response.json();
 
-            responseJSON.artifacts.forEach((image, index) => {
+            for (const [index, image] of responseJSON.artifacts.entries()) {
+                // Convert the image to the specified format for saving
+                const saveBuffer = await sharp(Buffer.from(image.base64, 'base64'))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+
                 // Saves images to disk if the setting is enabled, otherwise only send them to Discord
                 if (saveToDiskCheck()) {
                     fs.writeFileSync(
-                        `./Outputs/txt2img_${randomID.get()}_${index}.png`,
-                        Buffer.from(image.base64, 'base64')
+                        `./Outputs/txt2img_${randomID.get()}_${index}.${config.Advanced.Save_Images_As}`,
+                        saveBuffer
                     );
-                    console.log(`Saved Image: ./Outputs/txt2img_${randomID.get()}_${index}.png`);
+                    console.log(`Saved Image: ./Outputs/txt2img_${randomID.get()}_${index}.${config.Advanced.Save_Images_As}`);
                 }
-                // Pushes the image buffer to the buffer array to be returned
-                imageBuffer.push(Buffer.from(image.base64, 'base64'));
-            });
+
+                // Convert the image to the specified format for sending
+                // If Save and Send are the same then don't convert it again
+                if (config.Advanced.Save_Images_As == config.Advanced.Send_Images_As) {
+                    imageBuffer.push(saveBuffer);
+                } else {
+                    const sendBuffer = await sharp(saveBuffer)[config.Advanced.Send_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+                    imageBuffer.push(sendBuffer);
+                }
+            }
         })
         .catch((error) => {
             console.error(error);
