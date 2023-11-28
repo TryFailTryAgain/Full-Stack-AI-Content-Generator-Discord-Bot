@@ -245,9 +245,7 @@ module.exports = {
         // When the button is clicked, regenerate the image and update the reply
         collector.on('collect', async i => {
             // Disable the buttons to prevent double actions
-            row.components[0].setDisabled(true);
-            row.components[1].setDisabled(true);
-            row.components[2].setDisabled(true);
+            row.components.forEach(component => component.setDisabled(true));
             // Update to show the disabled button but keep everything else as is
             // This may be a silly implementation but it works and the other methods I tried... work less
             await i.update({
@@ -282,9 +280,7 @@ module.exports = {
             }
             // Check if multiple images were generated in the request as we can only upscale or refine one at a time
             // TODO: see above todo after action row creation
-            if (numberOfImages <= 1) {
-                row.components[1].setDisabled(false);
-            }
+            row.components[1].setDisabled(numberOfImages > 1);
             // Re-enable the buttons that aren't affected by the number of images now that we have the new image to update with
             row.components[0].setDisabled(false);
             row.components[2].setDisabled(false);
@@ -306,9 +302,7 @@ module.exports = {
         // When the upscale button is clicked, upscale the most recent image and update the reply
         upscaleCollector.on('collect', async i => {
             // Disables the buttons to prevent more clicks
-            row.components[0].setDisabled(true);
-            row.components[1].setDisabled(true);
-            row.components[2].setDisabled(true);
+            row.components.forEach(component => component.setDisabled(true));
             // Update to show the disabled button but keep everything else as is
             await i.update({
                 components: [row],
@@ -343,9 +337,7 @@ module.exports = {
                 attachments.push(new AttachmentBuilder(imageBuffer[i]));
             }
             // Re-enables the buttons now that we have the new image to update with
-            row.components[0].setDisabled(false);
-            row.components[1].setDisabled(false);
-            row.components[2].setDisabled(false);
+            row.components.forEach(component => component.setDisabled(false));
             // Updates the reply with the new image
             await i.editReply({
                 content: "Upscaled to " + width + "px wide! " + await lowBalanceMessage(),
@@ -370,9 +362,7 @@ module.exports = {
                 // Show the modal first
                 await i.showModal(chatRefineModal);
                 // Disables the buttons to prevent more clicks
-                row.components[0].setDisabled(true);
-                row.components[1].setDisabled(true);
-                row.components[2].setDisabled(true);
+                row.components.forEach(component => component.setDisabled(true));
                 // .editReply() is used here instead of .update() because the modal being shown counts as out first interaction and .update() will throw
                 //      an error as the interaction has already been responded to
                 await i.editReply({
@@ -395,15 +385,13 @@ module.exports = {
                 }
                 // // clears out the old attachments and build a new one with the image to be sent to discord
                 // attachments = [];
-                
+
                 // Slot the new images into the attachments array at the beginning so they are displayed first
                 for (let i = 0; i < imageBuffer.length; i++) {
                     attachments.unshift(new AttachmentBuilder(imageBuffer[i]));
                 }
                 // Re enable the buttons now that we have the new image to update with
-                row.components[0].setDisabled(false);
-                row.components[1].setDisabled(false);
-                row.components[2].setDisabled(false);
+                row.components.forEach(component => component.setDisabled(false));
                 // Sends the new image to discord
                 await i.editReply({
                     content: '⬅️New Images first \n Original Images last➡️ \n' + await lowBalanceMessage(),
@@ -419,12 +407,16 @@ module.exports = {
 
         // When the collectors time runs out, disable the buttons
         collector.on('end', async () => {
-            row.components[0].setDisabled(true);
-            row.components[1].setDisabled(true);
-            row.components[2].setDisabled(true);
-            await interaction.editReply({
-                components: [row],
-            });
+            row.components.forEach(component => component.setDisabled(true));
+            try {
+                await interaction.editReply({
+                    components: [row],
+                });
+            } catch (error) {
+                console.error(error);
+                // Assuming `followUpEphemeral` is a custom function to send a follow-up message
+                followUpEphemeral(interaction, "An error occurred while disabling the buttons. Please try again or contact the bot host if this persists");
+            }
         });
     }
 };
@@ -658,12 +650,12 @@ async function adaptImagePrompt(currentPrompt, chatRefinementRequest, userID) {
 
 // Function to check if the profanity filter is enabled or disabled from the settings.ini file
 async function filterCheck() {
-    const inputFilter = config.Advanced.Filter_Naughty_Words;
-    // Alert console if the profanity filter is enabled or disabled
-    if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
-        return true;
+    const inputFilter = config.Advanced.Filter_Naughty_Words.toLowerCase();
 
-    } else if (inputFilter == 'false' || inputFilter == 'False' || inputFilter == 'FALSE') {
+    // Alert console if the profanity filter is enabled or disabled
+    if (inputFilter === 'true') {
+        return true;
+    } else if (inputFilter === 'false') {
         return false;
     } else {
         throw new Error("The Filter_Naughty_Words setting in settings.ini is not set to true or false. Please set it to true or false");
@@ -727,10 +719,10 @@ async function lowBalanceMessage() {
     let message = '';
     switch (true) {
         case (balance < 50):
-            message = 'Almost out of api credits, please consider sending your server host a few bucks to keep me running ❤️';
+            message = 'Almost out of api credits, please consider sending your bot host a few bucks to keep me running ❤️';
             break;
         case (balance < 200):
-            message = 'Consider funding your server host $1 ❤️';
+            message = 'Consider funding your bot host $1 ❤️';
             break;
         default:
             break;
@@ -740,10 +732,10 @@ async function lowBalanceMessage() {
 
 // Check if the user wants to save the images to disk or not
 async function saveToDiskCheck() {
-    const saveImages = config.Advanced.Save_Images;
-    if (saveImages == 'true' || saveImages == 'True' || saveImages == 'TRUE') {
+    const saveImages = config.Advanced.Save_Images.toLowerCase();
+    if (saveImages === 'true') {
         return true;
-    } else if (saveImages == 'false' || saveImages == 'False' || saveImages == 'FALSE') {
+    } else if (saveImages === 'false') {
         return false;
     } else {
         throw new Error("The Save_Images setting in settings.ini is not set to true or false. Please set it to true or false");
