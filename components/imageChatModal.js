@@ -29,7 +29,7 @@ module.exports = {
         return new Promise((resolve, reject) => {
             // Sets up a one-time listener for the modal submit interaction
             const filter = (i) => i.customId === 'chatRefineModal' && i.user.id === interaction.user.id;
-            interaction.awaitModalSubmit({ filter, time: 7_200_000 })
+            interaction.awaitModalSubmit({ filter, time: 300_000 }) // 5 min. Max time is 15 minutes. but stay under to allow processing
                 .then(modalInteraction => {
                     // Resolves the promise with the value from the modal
                     const refinementRequest = modalInteraction.fields.getTextInputValue('chatRefinement');

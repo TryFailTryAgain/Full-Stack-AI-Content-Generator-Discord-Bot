@@ -240,8 +240,11 @@ module.exports = {
 
         /* Regenerate button handling */
         // Create an interaction collector to listen for button interactions
+        // The maximum amount of time that a message is modifiable is 15 minutes.
+        //      This is a limitation of discord as their webhooks will only stay valid for 15 minutes.
+        //      WE will set the collector to 14.5 minutes to give us a little bit of time to finish any requests the image and update the reply
         const collectorFilter = i => i.customId === 'regenerate' && i.user.id === interaction.user.id;
-        const collector = reply.createMessageComponentCollector({ filter: collectorFilter, time: 7_200_000 }); // 2 hours
+        const collector = reply.createMessageComponentCollector({ filter: collectorFilter, time: 870_000 }); // 14.5 minutes, see first collector comment
 
         // When the button is clicked, regenerate the image and update the reply
         collector.on('collect', async i => {
@@ -298,7 +301,7 @@ module.exports = {
         /* Upscale button handling */
         // Builds the collector for the upscale button
         const upscaleCollectorFilter = i => i.customId === 'upscale' && i.user.id === interaction.user.id;
-        const upscaleCollector = reply.createMessageComponentCollector({ filter: upscaleCollectorFilter, time: 7_200_000 }); // 2 hours
+        const upscaleCollector = reply.createMessageComponentCollector({ filter: upscaleCollectorFilter, time: 870_000 }); // 14.5 minutes, see first collector comment
 
         // When the upscale button is clicked, upscale the most recent image and update the reply
         upscaleCollector.on('collect', async i => {
@@ -355,7 +358,7 @@ module.exports = {
 
         // Builds the collector for the chat refinement button
         const chatRefinementCollectorFilter = i => i.customId === 'chatRefinement' && i.user.id === interaction.user.id;
-        const chatRefinementCollector = reply.createMessageComponentCollector({ filter: chatRefinementCollectorFilter, time: 7_200_000 }); // 2 hours
+        const chatRefinementCollector = reply.createMessageComponentCollector({ filter: chatRefinementCollectorFilter, time: 870_000 }); // 14.5 minutes, see first collector comment
 
         // When the chat refinement button is clicked, open the modal and handle the submission
         chatRefinementCollector.on('collect', async (i) => {
