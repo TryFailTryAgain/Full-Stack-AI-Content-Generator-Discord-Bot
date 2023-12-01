@@ -242,7 +242,7 @@ module.exports = {
         // Create an interaction collector to listen for button interactions
         // The maximum amount of time that a message is modifiable is 15 minutes.
         //      This is a limitation of discord as their webhooks will only stay valid for 15 minutes.
-        //      WE will set the collector to 14.5 minutes to give us a little bit of time to finish any requests the image and update the reply
+        //      We will set the collector to 14.5 minutes to give us a little bit of time to finish any requests and update the reply
         const collectorFilter = i => i.customId === 'regenerate' && i.user.id === interaction.user.id;
         const collector = reply.createMessageComponentCollector({ filter: collectorFilter, time: 870_000 }); // 14.5 minutes, see first collector comment
 
@@ -387,18 +387,25 @@ module.exports = {
                     followUpEphemeral(interaction, "An error occurred while generating the refined image. Please try again");
                     return;
                 }
-                // // clears out the old attachments and build a new one with the image to be sent to discord
-                // attachments = [];
 
                 // Slot the new images into the attachments array at the beginning so they are displayed first
                 for (let i = 0; i < imageBuffer.length; i++) {
                     attachments.unshift(new AttachmentBuilder(imageBuffer[i]));
                 }
+
+                // Limit the number of attachments to 9 as it keeps them in a grid.
+                // Discord also has a limit of max 10 attachments per message
+                let informIfTruncated = '';
+                if (attachments.length > 9) {
+                    attachments = attachments.slice(0, 9); // End marker is excluded with .slice() so this returns the first 9 images 0 - 8
+                    informIfTruncated = 'Oldest images have been truncated. Only the newest 9 images are shown due to a discord limitation\n';
+                }
+
                 // Re enable the buttons now that we have the new image to update with
                 row.components.forEach(component => component.setDisabled(false));
                 // Sends the new image to discord
                 await i.editReply({
-                    content: '⬅️New Images first \n Original Images last➡️ \n' + await lowBalanceMessage(),
+                    content: '⬅️New Images first \n➡️Original Images last \n' + informIfTruncated + await lowBalanceMessage(),
                     files: attachments,
                     components: [row],
                 });
