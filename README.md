@@ -2,28 +2,25 @@
 
 #### Allows you to automatically generate images of any kind using Stability.AI, optimize/stylize image prompts using Openai, memes with auto generated images and captions, and ad-lib stories to fill in, all from within Discord. 
 ----------------------
-<p align="center"><img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Content-Generator-Discord-Bot/blob/main/assets/image-example.png"width=32%> <img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Meme-Generator-Discord-Bot/blob/main/assets/example2.png" width=40%></p>
+<p align="center"><img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Content-Generator-Discord-Bot/blob/main/assets/image-example.png"width=22%> <img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Meme-Generator-Discord-Bot/blob/main/assets/example2.png" width=30%><img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Content-Generator-Discord-Bot/blob/main/assets/image-refinement-example.png" width=45%></p>
 
 ## Features
-- NEW - Use Stability.AI to generate images given a prompt and optional options for
-  - Auto prompt optimization/stylization
-  - Stable Diffusion model
-  - Dimensions
-  - Number of image to generate
-  - Steps
-  - CFG
-- NEW FUNCTIONALITY: Create an AI generated ad-lib story that you fill in
-- Uses OpenAI's GPT-4 to generate the text and image prompt for the meme.
-- Automatically sends image prompt request to an AI image generator of choice, then combines the text and image
-- Allows customization of the meme generation process through various settings.
-- Generates memes with a user-provided subject or concept, or you can let the AI decide.
-- Logs meme generation details for future reference.
-- Discord integration with two /slash commands for automatic or prompted memes
-- Optional profanity filter built in
+  - Use Stability.AI to generate images
+    - Natural language prompting allows conversational requests to make great images prompts after prepossessing them with OpenAI. ex input: "Make a photo of a cactus look realistic but add a baseball hat"
+    - Regenerate, Upscale, and iterative & selective image modifications using chat
+    - Iterative image refinement using conversational editing. The editor attempts to maintain as much of the original image while adapting the parts you request to be modified.
+    - Multi-image generation, Image dimensions, Seed, CFG, Steps, and options to disable natural language processing are built into the command
+- Create an AI generated ad-lib story that you fill in
+- Uses OpenAI's GPT-4 to generate on demand memes using a concept of your choice or random selection
+- High degree of customization for all commands on the host's end
+  - Customize system and user messages for each command calling OpenAI
+  - Optional moderation logging with discord user privacy preserving features
+  - Profanity filtering
+  - OpenAI model used on a per command basis
 
 ## Current Discord bot /slash commands
 - /image
-  - Generates an image given a prompt and some optional parameters
+  - Generates an image given a message and some optional parameters. Has buttons to Regenerate, Upscale, or Refine with chat for each image generation
 - /ad-lib_story
   - This will summon chatGPT to create a story, with or without a user prompt to guide it, that then sends a modal form for the user to fill out before turning the ad-libed story back over to them
 - /automeme
@@ -37,7 +34,7 @@
 1. Clone the repository & Install the necessary packages. via
     - Node.js requirements: npm install
     - Python requirements: pip install -r Requirements.txt
-3. Obtain at least an OpenAI API key, but it is recommended to also use APIs from Clipdrop or Stability AI (DreamStudio) for the image generation stage.
+3. Obtain at least an OpenAI API key, and for /image use, a Stability AI (DreamStudio) API key as well for the image generation stages.
 4. Copy the blank files provided in the 'assets' folder into the root folder and name them 'settings.ini' and 'api_keys.ini' respectively. This is for controlling meme generation
     - Edit 'api_keys.ini' to add your api keys for the platforms you intend to use. OpenAI required.
     - Edit 'settings.ini' to make any modifications to the defaults. Each setting is explained in the comments of the file
@@ -57,6 +54,9 @@ Global settings:
 - Profanity filter can be enabled/disabled
 
 /image specific settings:
+- Adjustable OpenAI System and User messages per request type
+- LLM model selection per request type
+- Moderation logging
 - Save images to disk can be enabled or disabled
 
 Meme generation specific settings:
@@ -77,36 +77,3 @@ Chat Bot Meme Text: "When you finally find the perfect napping spot... on the la
 Chat Bot Image Prompt: "A photograph of a cat laying down on an open laptop."
 Image Generation Platform: clipdrop
 ```
-
-## Optional Arguments for commandline interaction and development of additional bot functionality using the meme generator
-### You can also pass options into the program via command-line arguments whether using the python version or exe version.
-
-#### • API Key Arguments: Not necessary if the keys are already in api_keys.ini
-`--openaikey`: OpenAI API key.
-
-`--clipdropkey`: ClipDrop API key.
-
-`--stabilitykey`: Stability AI API key.
-
-#### • Basic Meme Arguments
-
-`--userprompt`: A meme subject or concept to send to the chat bot. If not specified, the user will be prompted to enter a subject or concept.
-
-`--memecount`: The number of memes to create. If using arguments and not specified, the default is 1.
-
-#### • Advanced Meme Settings Arguments
-
-`--imageplatform`: The image platform to use. If using arguments and not specified, the default is 'clipdrop'. Possible options: 'openai', 'stability', 'clipdrop'.
-
-`--temperature`: The temperature to use for the chat bot. If using arguments and not specified, the default is 1.0.
-
-`--basicinstructions`: The basic instructions to use for the chat bot. If using arguments and not specified, the default is "You will create funny memes that are clever and original, and not cliche or lame.".
-
-`--imagespecialinstructions`: The image special instructions to use for the chat bot. The default is "The images should be photographic.".
-
-#### • Binary arguments: Just adding them activates them, no text needs to accompany them
-
-`--nouserinput`: If specified, this will prevent any user input prompts, and will instead use default values or other arguments.
-
-`--nofilesave`: If specified, the meme will not be saved to a file, and only returned as virtual file part of memeResultsDictsList.
-
