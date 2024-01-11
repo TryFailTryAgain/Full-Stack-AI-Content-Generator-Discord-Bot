@@ -227,8 +227,12 @@ module.exports = {
         }
 
         // Edit the reply to show the generated image and the buttons
+        let apiCreditReply = 'Image Generated! Consider funding me to cover API fees❤️';
+        if (imageModel != 'dall-e-3') {
+            apiCreditReply = await lowBalanceMessage();
+        }
         const reply = await interaction.editReply({
-            content: await lowBalanceMessage(),
+            content: apiCreditReply,
             files: attachments,
             components: [row],
         });
