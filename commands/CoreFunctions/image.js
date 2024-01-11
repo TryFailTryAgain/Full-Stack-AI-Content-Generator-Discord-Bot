@@ -27,9 +27,9 @@ const API_KEYS_FILE_PATH = './api_keys.ini';
 const config = getIniFileContent(SETTINGS_FILE_PATH);
 const apiKeys = getIniFileContent(API_KEYS_FILE_PATH);
 
+
 // Validate API keys
 validateApiKeys(apiKeys);
-
 const StabilityAIKey = apiKeys.Keys.StabilityAI;
 const openAIKey = apiKeys.Keys.OpenAI;
 const openai = new OpenAI({ apiKey: openAIKey });
@@ -61,46 +61,41 @@ module.exports = {
         )
         .addStringOption(option =>
             option.setName('dimensions')
-                .setDescription('The dimensions of the image. Only affect default SDXL. Default: 1024x1024 aka 1:1')
+                .setDescription('The dimensions of the image')
                 .addChoices(
-                    { name: '1024 x 1024', value: '1024x1024' },
-                    { name: '1152 x 896', value: '1152x896' },
-                    { name: '896 x 1152', value: '896x1152' },
-                    { name: '1216 x 832', value: '1216x832' },
-                    { name: '832 x 1216', value: '832x1216' },
-                    { name: '1344 x 768', value: '1344x768' },
-                    { name: '768 x 1344', value: '768x1344' },
-                    { name: '1536 x 640', value: '1536x640' },
-                    { name: '640 x 1536', value: '640x1536' },
+                    { name: 'Square', value: 'square' },
+                    { name: 'Wide', value: 'wide' },
+                    { name: 'Tall', value: 'tall' },
                 )
                 .setRequired(false)
         )
         .addIntegerOption(option =>
             option.setName('number-of-images')
-                .setDescription('How many images to generate. Default: 1')
+                .setDescription('ONLY available with image model SDXL and SD1.6 - Number of images to generate')
                 .setMinValue(1)
                 .setMaxValue(9)
                 .setRequired(false)
         )
         .addStringOption(option =>
-            option.setName('stable-diffusion-model')
-                .setDescription('The engine to use for generating the image. Default: SDXL 1.0')
-                .setRequired(false)
+            option.setName('image-model')
+                .setDescription('The engine to use for generating the image')
                 .addChoices(
+                    { name: 'Dall-E 3', value: 'dall-e-3' },
                     { name: 'SDXL 1.0', value: 'stable-diffusion-xl-1024-v1-0' },
                     { name: 'SD 1.6', value: 'stable-diffusion-v1-6' },
                 )
+                .setRequired(false)
         )
         .addIntegerOption(option =>
             option.setName('cfg-scale')
-                .setDescription('How closely to follow the prompt. Default:7 from 1-10')
+                .setDescription('ONLY available with image model SDXL and SD1.6 - How closely to follow the prompt')
                 .setMinValue(1)
                 .setMaxValue(10)
                 .setRequired(false)
         )
         .addIntegerOption(option =>
             option.setName('steps')
-                .setDescription('How many steps to refine the image. More is not always better Default:35')
+                .setDescription('ONLY available with image model SDXL and SD1.6 - How many steps to refine the image')
                 .setMinValue(1)
                 .setMaxValue(60)
                 .addChoices(
@@ -115,7 +110,7 @@ module.exports = {
         )
         .addIntegerOption(option =>
             option.setName('seed')
-                .setDescription('The seed number to use for the image. Defaults to random')
+                .setDescription('ONLY available with image model SDXL and SD1.6 - The seed number to use for the image')
                 .setMinValue(1)
                 .setMaxValue(4294967295)
                 .setRequired(false)
@@ -133,16 +128,13 @@ module.exports = {
         // Defaults are set if the user does not provide them
         let userInput = interaction.options.getString('prompt');
         let disableOptimizePrompt = interaction.options.getBoolean('disable-optimization') || false;
-        let dimensions = interaction.options.getString('dimensions') || '1024x1024';
+        let dimensions = interaction.options.getString('dimensions') || 'square';
         let numberOfImages = interaction.options.getInteger('number-of-images') || 1;
-        let sdEngine = interaction.options.getString('stable-diffusion-model') || 'stable-diffusion-xl-1024-v1-0';
-        let cfgScale = interaction.options.getInteger('cfg-scale') || 7;
+        let imageModel = interaction.options.getString('image-model') || 'dall-e-3';
+        let cfgScale = interaction.options.getInteger('cfg-scale') || 6;
         let steps = interaction.options.getInteger('steps') || 40;
         let seed = interaction.options.getInteger('seed') || await genSeed();
-        // Detects if SD 1.6 is selected but the resolution was not manually set. Override its default to 512x512 as it is terrible at 1024x1024
-        if (sdEngine == 'stable-diffusion-v1-6' && dimensions == '1024x1024') {
-            dimensions = '512x512';
-        }
+
         // Split out the width to check if it is over X during upscaling
         let width = parseInt(dimensions.split('x')[0]);
 
@@ -159,16 +151,18 @@ module.exports = {
 
         /* Image generation */
 
-        // Check if out of API credits
-        try {
-            if (await getBalance() < 0.23 * numberOfImages) { //current SDXL price is 0.23 credits per image at 40 steps
-                deleteAndFollowUpEphemeral(interaction, 'Out of API credits! Please consider donating to your server to keep this bot running!');
+        // If not using OpenAI, check Stability if out of API credits
+        if (imageModel != 'dall-e-3') {
+            try {
+                if (await getBalance() < 0.23 * numberOfImages) { //current SDXL price is 0.23 credits per image at 40 steps
+                    deleteAndFollowUpEphemeral(interaction, 'Out of API credits! Please consider donating to your server to keep this bot running!');
+                    return;
+                }
+            } catch (error) {
+                console.error(error);
+                deleteAndFollowUpEphemeral(interaction, "An error occurred while fetching the API balance. Please try again");
                 return;
             }
-        } catch (error) {
-            console.error(error);
-            deleteAndFollowUpEphemeral(interaction, "An error occurred while fetching the API balance. Please try again");
-            return;
         }
         // Optimize the prompt unless the user has specifically asked not to
         let optimized_Prompt = null;
@@ -184,14 +178,16 @@ module.exports = {
             userInput = optimized_Prompt;
         }
 
+
         // Generate the image
         let imageBuffer = null;
         try {
-            imageBuffer = await generateImage(userInput, dimensions, numberOfImages, sdEngine, cfgScale, steps, seed);
+            imageBuffer = await generateImage(userInput, imageModel, dimensions, numberOfImages, cfgScale, steps, seed, interaction.user.id);
         } catch (error) {
             console.error(error);
-            if (error.message.includes("Invalid prompts detected")) {
-                deleteAndFollowUpEphemeral(interaction, "Invalid prompts detected. Please try again with alternative wording");
+            // check for returned error for Stability and OpenAI, respectively
+            if (error.message.includes("Invalid prompts detected") || error.message.includes("Your request was rejected")) {
+                deleteAndFollowUpEphemeral(interaction, "Invalid/Banned prompt detected. Please try again with a different prompt");
             } else {
                 deleteAndFollowUpEphemeral(interaction, "An error occurred while generating the image. Please try again");
             }
@@ -269,7 +265,7 @@ module.exports = {
             seed = await genSeed();
             // Regenerate the image and update the reply
             try {
-                imageBuffer = await generateImage(userInput, dimensions, numberOfImages, sdEngine, cfgScale, steps, seed);
+                imageBuffer = await generateImage(userInput, imageModel, dimensions, numberOfImages, cfgScale, steps, seed, interaction.user.id);
             } catch (error) {
                 console.error(error);
                 followUpEphemeral(interaction, "An error occurred while regenerating the image. Please try again");
@@ -381,7 +377,7 @@ module.exports = {
                 userInput = await adaptImagePrompt(userInput, chatRefinementRequest, i.user.id);
                 // Pass all the parameters to the image generation function with identical seed so images are closer to the original
                 try {
-                    imageBuffer = await generateImage(userInput, dimensions, numberOfImages, sdEngine, cfgScale, steps, seed);
+                    imageBuffer = await generateImage(userInput, imageModel, dimensions, numberOfImages, cfgScale, steps, seed, interaction.user.id);
                 } catch (error) {
                     console.error(error);
                     followUpEphemeral(interaction, "An error occurred while generating the refined image. Please try again");
@@ -435,27 +431,80 @@ module.exports = {
 /* Functions */
 // Documentation:
 // https://platform.stability.ai/docs/api-reference#tag/v1generation/operation/textToImage
-async function generateImage(userInput, dimensions, numberOfImages, sdEngine, cfg, steps, seed) {
-    /* REST API call to StabilityAI */
-    //Checks settings.ini for image logging to be enabled or disabled
-    console.log("---Generating image---");
-    console.log("\n\n---Sending generation request to StabilityAI with the following parameters: \n" +
-        "-Prompt: " + userInput + "\n" +
-        "-Dimensions: " + dimensions + "\n" +
-        "-Stable Diffusion Engine: " + sdEngine + "\n" +
-        "-cfg-scale: " + cfg + "\n" +
-        "-Steps: " + steps + "\n" +
-        "-Seed: " + seed + "\n\n");
-
+async function generateImage(userInput, imageModel, dimensions, numberOfImages, cfg, steps, seed, userID) {
     // Creates an empty array to store the image buffers in
     let imageBuffer = [];
     // Generates a randomID integer to be used in the file name for identification
     randomID.generate();
+    // Get the correct dimensions for the image
+    const trueDimensions = getDimensions(imageModel, dimensions);
+    // Generate a hashed user ID to send to openai instead of the original user ID
+    const hashedUserID = await generateHashedUserId(userID);
+    
+    /* OpenAI image generation */
+    // Check what Image_Model is configured in settings.ini
+    if (imageModel == "dall-e-3") {
+        console.log("---Generating image via OpenAI---");
+        console.log("\n\n--Sending generation request to OpenAI with the following parameters: \n" +
+            "-Prompt: " + userInput + "\n" +
+            "-Dimensions: " + trueDimensions + "\n" +
+            "-Dall-E Model: " + "dall-e-3" + "\n" +
+            "-User ID: " + hashedUserID + "\n\n");
+
+        const response = await openai.images.generate({
+            model: "dall-e-3",
+            prompt: userInput,
+            n: 1,
+            size: trueDimensions,
+            quality: "standard", // "standard" or "hd" TODO: Add this to command options
+            style: "vivid", // "natural" or "vivid  TODO: Add this to command options
+            response_format: "b64_json",
+            user: toString(hashedUserID),
+        });
+        console.log("--generation completed--\n");
+        const revised_prompt = response.data[0].revised_prompt;
+        console.log("-OpenAI Revised String: \n" + revised_prompt + "\n");
+        const saveBuffer = await sharp((Buffer.from(response.data[0].b64_json, 'base64')))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+
+        // Saves images to disk if the setting is enabled, otherwise only send them to Discord
+        if (saveToDiskCheck()) {
+            fs.writeFileSync(
+                "./Outputs/txt2img_${randomID.get()}.${config.Advanced.Save_Images_As}",
+                saveBuffer
+            );
+            console.log("Saved Image: ./Outputs/txt2img_${randomID.get()}.${config.Advanced.Save_Images_As}");
+        }
+
+        // Convert the image to the specified format for sending
+        // If Save and Send are the same then don't convert it again
+        if (config.Advanced.Save_Images_As == config.Advanced.Send_Images_As) {
+            imageBuffer.push(saveBuffer);
+        } else {
+            const sendBuffer = await sharp(saveBuffer)[config.Advanced.Send_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+            imageBuffer.push(sendBuffer);
+        }
+
+        // return the image buffer full of the generated images
+        console.log("Image generated and converted to " + config.Advanced.Send_Images_As + " format");
+        return imageBuffer;
+    }
+    /* End OpenAI image generation */
+
+    /* REST API call to StabilityAI */
+    console.log("---Generating image---");
+    console.log("\n\n--Sending generation request to StabilityAI with the following parameters: \n" +
+        "-Prompt: " + userInput + "\n" +
+        "-Dimensions: " + trueDimensions + "\n" +
+        "-Stable Diffusion Engine: " + imageModel + "\n" +
+        "-cfg-scale: " + cfg + "\n" +
+        "-Steps: " + steps + "\n" +
+        "-Seed: " + seed + "\n\n");
+
     // Split the dimensions string into height and width
-    const [width, height] = dimensions.split('x').map(Number);
+    const [width, height] = trueDimensions.split('x').map(Number);
     console.log("Width: " + width + "   Height: " + height);
 
-    await fetch(`${apiHost}/v1/generation/${sdEngine}/text-to-image`, {
+    await fetch(`${apiHost}/v1/generation/${imageModel}/text-to-image`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -472,7 +521,7 @@ async function generateImage(userInput, dimensions, numberOfImages, sdEngine, cf
                     // A generic negative prompt to guide the generation to be higher quality overall. This is a temporary solution
                     // TODO: This should be generated by the AI optimizer but at the moment it is extremely unreliable with gpt 3.5 and
                     //      gpt-4 is not yet perfected and will need a better prompt to guide it.
-                    "text": "low resolution, bad art, worst quality, lowres, blurry",
+                    "text": "low resolution, bad quality, warped image, jpeg artifacts, worst quality, lowres, blurry",
                     "weight": -1
                 }
             ],
@@ -499,10 +548,10 @@ async function generateImage(userInput, dimensions, numberOfImages, sdEngine, cf
                 // Saves images to disk if the setting is enabled, otherwise only send them to Discord
                 if (saveToDiskCheck()) {
                     fs.writeFileSync(
-                        `./Outputs/txt2img_${randomID.get()}_${index}.${config.Advanced.Save_Images_As}`,
+                        "./Outputs/txt2img_${randomID.get()}_${index}.${config.Advanced.Save_Images_As}",
                         saveBuffer
                     );
-                    console.log(`Saved Image: ./Outputs/txt2img_${randomID.get()}_${index}.${config.Advanced.Save_Images_As}`);
+                    console.log("Saved Image: ./Outputs/txt2img_${randomID.get()}_${index}.${config.Advanced.Save_Images_As}");
                 }
 
                 // Convert the image to the specified format for sending
@@ -574,7 +623,7 @@ async function upscaleImage(imageBuffer, width) {
 // Function to optimize the prompt using openai's API
 async function promptOptimizer(userInput, userID) {
     // Send the prompt to openai's API to optimize it
-    console.log("Optimizing prompt...");
+    console.log("--Optimizing prompt--");
     // Get some values from settings.ini to define the model and the messages to send to openai
     const Prompt_Model = config.Image_command_settings.Prompt_Model;
     const temperature = config.Image_command_settings.Optimizer_Temperature;
@@ -622,10 +671,9 @@ async function promptOptimizer(userInput, userID) {
 }
 
 
-
 // Function to adapt the image prompt used for image generation to align with the users input as requested via chat refinement
 async function adaptImagePrompt(currentPrompt, chatRefinementRequest, userID) {
-    console.log("Adapting the prompt based on chat request...");
+    console.log("--Adapting the prompt based on chat request--");
     // Get some values from settings.ini to define the model and the messages to send to openai
     const Prompt_Model = config.Image_command_settings.Prompt_Model;
     const temperature = config.Image_command_settings.Optimizer_Temperature;
@@ -694,11 +742,11 @@ async function filterCheck() {
 // TODO: Add a section to add custom words to the filter in the settings config that will be imported here
 async function filterString(input) {
     try {
-        console.log("---Filtering string...\n");
+        console.log("--Filtering string--\n");
         input = (filter.clean(input)).toString();
         // Removes the asterisks that the filter replaces the bad words with. Somehow this is not built into the filter to my knowledge
         input = input.replace(/\*/g, '');
-        console.log("---The string after filtering is:\n" + input + "\n");
+        console.log("-The string after filtering is:\n" + input + "\n");
     } catch (error) {
         console.error(error);
         // Throws another error to be caught when the function is called
@@ -719,7 +767,6 @@ async function generateHashedUserId(userId) {
     // Convert the hash to a hexadecimal string
     const hashedUserId = hash.toString('hex');
     //console.log("Hashed user ID: " + hashedUserId);
-
     return hashedUserId;
 }
 
@@ -828,5 +875,57 @@ async function followUp(interaction, message) {
 // Generates a random seed for image generation
 async function genSeed() {
     return Math.floor(Math.random() * 4294967295);
+}
+
+function getDimensions(imageModel, dimensionType) {
+    let dimensions = '';
+
+    if (imageModel === 'stable-diffusion-xl-1024-v1-0') {
+        switch (dimensionType) {
+            case 'square':
+                dimensions = '1024x1024';
+                break;
+            case 'tall':
+                dimensions = '768x1344';
+                break;
+            case 'wide':
+                dimensions = '1344x768';
+                break;
+            default:
+                dimensions = 'Invalid dimension type';
+        }
+    } else if (imageModel === 'dall-e-3') {
+        switch (dimensionType) {
+            case 'square':
+                dimensions = '1024x1024';
+                break;
+            case 'tall':
+                dimensions = '1024x1792';
+                break;
+            case 'wide':
+                dimensions = '1792x1024';
+                break;
+            default:
+                dimensions = 'Invalid dimension type';
+        }
+    } else if (imageModel === 'stable-diffusion-v1-6') {
+        switch (dimensionType) {
+            case 'square':
+                dimensions = '512x512';
+                break;
+            case 'tall':
+                dimensions = '512x896';
+                break;
+            case 'wide':
+                dimensions = '896x512';
+                break;
+            default:
+                dimensions = 'Invalid dimension type';
+        }
+    } else {
+        dimensions = 'Invalid image model';
+    }
+
+    return dimensions;
 }
 /* End of functions */
