@@ -71,7 +71,7 @@ module.exports = {
         )
         .addIntegerOption(option =>
             option.setName('number-of-images')
-                .setDescription('ONLY available with image model SDXL and SD1.6 - Number of images to generate')
+                .setDescription('Number of images to generate')
                 .setMinValue(1)
                 .setMaxValue(9)
                 .setRequired(false)
@@ -255,10 +255,12 @@ module.exports = {
             await i.update({
                 components: [row],
             });
-            // Check if out of API credits
+            // Check if out of Stability AI API credits
             try {
-                if (await getBalance() < 0.23 * numberOfImages) { //current SDXL price is 0.23-0.5 credits per image at 40 steps
-                    followUpEphemeral(interaction, "Out of API credits! Please consider donating to your server to keep this bot running!");
+                if (model != 'dall-e-3') {
+                    if (await getBalance() < 0.23 * numberOfImages) { //current SDXL price is 0.23-0.5 credits per image at 40 steps
+                        followUpEphemeral(interaction, "Out of API credits! Please consider donating to your server to keep this bot running!");
+                    }
                 }
             } catch (error) {
                 console.error(error);
@@ -438,56 +440,63 @@ module.exports = {
 async function generateImage(userInput, imageModel, dimensions, numberOfImages, cfg, steps, seed, userID) {
     // Creates an empty array to store the image buffers in
     let imageBuffer = [];
+    const promises = [];
     // Generates a randomID integer to be used in the file name for identification
     randomID.generate();
     // Get the correct dimensions for the image
     const trueDimensions = getDimensions(imageModel, dimensions);
     // Generate a hashed user ID to send to openai instead of the original user ID
     const hashedUserID = await generateHashedUserId(userID);
-    
+
     /* OpenAI image generation */
     // Check what Image_Model is configured in settings.ini
     if (imageModel == "dall-e-3") {
         console.log("---Generating image via OpenAI---");
         console.log("\n\n--Sending generation request to OpenAI with the following parameters: \n" +
             "-Prompt: " + userInput + "\n" +
+            "-Number of images: " + numberOfImages + "\n" +
             "-Dimensions: " + trueDimensions + "\n" +
             "-Dall-E Model: " + "dall-e-3" + "\n" +
             "-User ID: " + hashedUserID + "\n\n");
+        for (let i = 0; i < numberOfImages; i++) {
+            const promise = (async () => {
+                const response = await openai.images.generate({
+                    model: "dall-e-3",
+                    prompt: userInput,
+                    n: 1,
+                    size: trueDimensions,
+                    quality: "standard", // "standard" or "hd" TODO: Add this to command options
+                    style: "vivid", // "natural" or "vivid  TODO: Add this to command options
+                    response_format: "b64_json",
+                    user: toString(hashedUserID),
+                });
+                console.log("--Image #" + (i+1) + " generation completed--\n");
+                const revised_prompt = response.data[0].revised_prompt;
+                console.log("-OpenAI Revised String for Image #" + (i+1) + ": \n" + revised_prompt + "\n");
+                const saveBuffer = await sharp((Buffer.from(response.data[0].b64_json, 'base64')))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
 
-        const response = await openai.images.generate({
-            model: "dall-e-3",
-            prompt: userInput,
-            n: 1,
-            size: trueDimensions,
-            quality: "standard", // "standard" or "hd" TODO: Add this to command options
-            style: "vivid", // "natural" or "vivid  TODO: Add this to command options
-            response_format: "b64_json",
-            user: toString(hashedUserID),
-        });
-        console.log("--generation completed--\n");
-        const revised_prompt = response.data[0].revised_prompt;
-        console.log("-OpenAI Revised String: \n" + revised_prompt + "\n");
-        const saveBuffer = await sharp((Buffer.from(response.data[0].b64_json, 'base64')))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+                // Saves images to disk if the setting is enabled, otherwise only send them to Discord
+                if (saveToDiskCheck()) {
+                    fs.writeFileSync(
+                        `./Outputs/txt2img_${randomID.get()}_${i+1}.${config.Advanced.Save_Images_As}`,
+                        saveBuffer
+                    );
+                    console.log(`Saved Image: ./Outputs/txt2img_${randomID.get()}.${config.Advanced.Save_Images_As}`);
+                }
 
-        // Saves images to disk if the setting is enabled, otherwise only send them to Discord
-        if (saveToDiskCheck()) {
-            fs.writeFileSync(
-                "./Outputs/txt2img_${randomID.get()}.${config.Advanced.Save_Images_As}",
-                saveBuffer
-            );
-            console.log("Saved Image: ./Outputs/txt2img_${randomID.get()}.${config.Advanced.Save_Images_As}");
+                // Convert the image to the specified format for sending
+                // If Save and Send are the same then don't convert it again
+                if (config.Advanced.Save_Images_As == config.Advanced.Send_Images_As) {
+                    imageBuffer.push(saveBuffer);
+                } else {
+                    const sendBuffer = await sharp(saveBuffer)[config.Advanced.Send_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+                    imageBuffer.push(sendBuffer);
+                }
+                // Resolve the promises    
+            })();
+            promises.push(promise);
         }
-
-        // Convert the image to the specified format for sending
-        // If Save and Send are the same then don't convert it again
-        if (config.Advanced.Save_Images_As == config.Advanced.Send_Images_As) {
-            imageBuffer.push(saveBuffer);
-        } else {
-            const sendBuffer = await sharp(saveBuffer)[config.Advanced.Send_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
-            imageBuffer.push(sendBuffer);
-        }
-
+        await Promise.allSettled(promises);
         // return the image buffer full of the generated images
         console.log("Image generated and converted to " + config.Advanced.Send_Images_As + " format");
         return imageBuffer;
@@ -552,10 +561,10 @@ async function generateImage(userInput, imageModel, dimensions, numberOfImages, 
                 // Saves images to disk if the setting is enabled, otherwise only send them to Discord
                 if (saveToDiskCheck()) {
                     fs.writeFileSync(
-                        "./Outputs/txt2img_${randomID.get()}_${index}.${config.Advanced.Save_Images_As}",
+                        `./Outputs/txt2img_${randomID.get()}_${index+1}.${config.Advanced.Save_Images_As}`,
                         saveBuffer
                     );
-                    console.log("Saved Image: ./Outputs/txt2img_${randomID.get()}_${index}.${config.Advanced.Save_Images_As}");
+                    console.log(`Saved Image: ./Outputs/txt2img_${randomID.get()}_${index+1}.${config.Advanced.Save_Images_As}`);
                 }
 
                 // Convert the image to the specified format for sending
