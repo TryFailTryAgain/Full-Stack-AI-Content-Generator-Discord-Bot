@@ -35,18 +35,18 @@
     - Node.js requirements: npm install
     - Python requirements: pip install -r Requirements.txt
 3. Obtain at least an OpenAI API key, and for more image platform options a Stability AI (DreamStudio) API key as well for the image generation stages.
-4. Copy the blank files provided in the 'assets' folder into the root folder and name them 'settings.ini' and 'api_keys.ini' respectively. This is for ease of access to your API keys and to adjust command settings on the fly. Restarting the bot is required for some of the changes to take affect so it is best to do so after any settings or API changes are made.
+4. Copy the blank files provided in the 'assets' folder into the root folder and name them 'settings.ini', 'api_keys.ini', and 'config.json' respectively. This is for ease of access to your API keys and to adjust command settings on the fly. Restarting the bot is required for some of the changes to take affect so it is best to do so after any settings or API changes are made.
     - Edit 'api_keys.ini' to add your api keys for the platforms you intend to use. OpenAI required.
     - Edit 'settings.ini' to make any modifications to the defaults. Each setting is explained in the comments of the file
-5. Copy and rename 'config_empty.json' to 'config.json' in the root directory and to include:
-    - token: Your bot secret token
-    - clientId: The application id of your discord application
-    - guildId: The server id for the discord server you would like the bot to be able non-globally deployed commands in.
-7. Invite your bot made via discord developer portal to your server
-8. Run the command deploy script to initialize the commands on your specified server or use the global command to deploy to all servers the bot is a member of
+    - Edit 'config.json' to
+      - token: Your bot secret token
+      - clientId: The application id of your discord application
+      - guildId: The server id for the discord server you would like the bot to be able non-globally deployed commands in.
+5. Invite your bot made via discord developer portal to your server
+6. Run the command deploy script to initialize the commands on your specified server or use the global command to deploy to all servers the bot is a member of
     - node deploy-commands.js
     - node deploy-commands-global.js
-9. Start the bot!
+7. Start the bot!
     - node .
 
 ## Settings for customization in settings.ini
