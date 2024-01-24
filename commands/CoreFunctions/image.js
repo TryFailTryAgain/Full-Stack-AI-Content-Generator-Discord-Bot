@@ -354,13 +354,28 @@ module.exports = {
 
                 // set the userInput aka the prompt to the new adapted prompt
                 userInput = await adaptImagePrompt(userInput, chatRefinementRequest, i.user.id);
-                // Pass all the parameters to the image generation function with identical seed so images are closer to the original
-                try {
-                    imageBuffer = await generateImage(userInput, imageModel, dimensions, numberOfImages, cfgScale, steps, seed, interaction.user.id);
-                } catch (error) {
-                    console.error(error);
-                    followUpEphemeral(interaction, "An error occurred while generating the refined image. Please try again");
-                    return;
+
+                // Adapt the image differently depending on the image model as Dall-e 3 does not have a seed method.
+                //    TODO: This could potentially be the best solution for Stability ai too but I have not tested it yet
+                if (imageModel == 'dall-e-3') {
+                    try {
+                        // TODO: ad the ability to change the modification strength via the modal. Currently defaults to: 0.5
+                        // Generate a similar image using img2img from Stability.ai
+                        imageBuffer = await generateImageToImage(imageBuffer[0], userInput, 0.50, cfgScale, steps, seed, interaction.user.id);
+                    } catch (error) {
+                        console.error(error);
+                        followUpEphemeral(interaction, "An error occurred while generating the refined image. Please try again");
+                        return;
+                    }
+                } else {
+                    // Pass all the parameters to the image generation function with identical seed so images are closer to the original
+                    try {
+                        imageBuffer = await generateImage(userInput, imageModel, dimensions, numberOfImages, cfgScale, steps, seed, interaction.user.id);
+                    } catch (error) {
+                        console.error(error);
+                        followUpEphemeral(interaction, "An error occurred while generating the refined image. Please try again");
+                        return;
+                    }
                 }
 
                 // Slot the new images into the attachments array at the beginning so they are displayed first

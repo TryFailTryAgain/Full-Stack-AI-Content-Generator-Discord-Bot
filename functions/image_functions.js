@@ -6,6 +6,8 @@ const filter = new Filter({ placeHolder: '*' }); // Modify the character used to
 const Crypto = require('crypto');
 const OpenAI = require('openai');
 const sharp = require('sharp');
+const FormData = require('form-data');
+const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 /* End getting required modules */
 
 /* Some global variables for ease of access */
@@ -124,8 +126,8 @@ async function generateImage(userInput, imageModel, dimensions, numberOfImages, 
         headers: {
             'Content-Type': 'application/json',
             Accept: 'application/json',
-            Authorization: `${StabilityAIKey}`,
-            'Stability-Client-ID': `Full-Stack-AI-Content-Generator-Discord-Bot`,
+            Authorization: StabilityAIKey,
+            'Stability-Client-ID': hashedUserID,
         },
         body: JSON.stringify({
             text_prompts: [
@@ -195,6 +197,68 @@ async function generateImage(userInput, imageModel, dimensions, numberOfImages, 
     await Promise.allSettled(promises);
     return imageBuffer;
     /* End REST API call to StabilityAI */
+}
+
+//Documentation
+// https://platform.stability.ai/docs/api-reference#tag/v1generation/operation/imageToImage
+async function generateImageToImage(imageFile, userInput, img2imgStrength, cfg, steps, seed, userID) {
+    let imageBuffer = [];
+    const jpegBuffer = await sharp(imageFile).jpeg().toBuffer();
+    // Generate a hashed user ID to send to openai instead of the original user ID
+    const hashedUserID = await generateHashedUserId(userID);
+
+    const formData = new FormData();
+    formData.append('init_image', jpegBuffer);
+    formData.append('init_image_mode', "IMAGE_STRENGTH");
+    formData.append('image_strength', img2imgStrength);
+    formData.append('steps', steps);
+    formData.append('seed', seed);
+    formData.append('cfg_scale', cfg);
+    formData.append('samples', 1);
+    formData.append('text_prompts[0][text]', userInput)
+    formData.append('text_prompts[0][weight]', 1);
+    formData.append('text_prompts[1][text]', 'low resolution, bad quality, warped image, jpeg artifacts, worst quality, lowres, blurry')
+    formData.append('text_prompts[1][weight]', -1);
+
+    const response = await fetch(
+        "https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/image-to-image",
+        {
+            method: 'POST',
+            headers: {
+                ...formData.getHeaders(),
+                Accept: 'application/json',
+                Authorization: StabilityAIKey.toString(),
+                'Stability-Client-ID': hashedUserID,
+            },
+            body: formData,
+        }
+    );
+
+    if (!response.ok) {
+        throw new Error(`Non-200 response: ${await response.text()}`)
+    }
+    const responseJSON = await response.json();
+
+    imageBuffer = await Promise.all(responseJSON.artifacts.map(async (image, index) => {
+        const saveBuffer = await sharp(Buffer.from(image.base64, 'base64'))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+        if (saveToDiskCheck()) {
+            fs.writeFileSync(
+                `./Outputs/img2img_${randomID.get()}_${index + 1}.${config.Advanced.Save_Images_As}`,
+                saveBuffer
+            );
+            console.log(`Saved Image: ./Outputs/img2img_${randomID.get()}_${index + 1}.${config.Advanced.Save_Images_As}`);
+        }
+        // Converts the image to the specified format for sending
+        // If Save and Send are the same then don't convert it again
+        if (config.Advanced.Save_Images_As == config.Advanced.Send_Images_As) {
+            return saveBuffer;
+        } else {
+            const sendBuffer = await sharp(saveBuffer)[config.Advanced.Send_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+            return sendBuffer;
+        }
+    }));
+
+    return imageBuffer;
 }
 
 // Documentation:
@@ -571,5 +635,6 @@ module.exports = {
     followUpEphemeral,
     followUp,
     genSeed,
-    getDimensions
+    getDimensions,
+    generateImageToImage,
 };
