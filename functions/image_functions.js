@@ -41,7 +41,7 @@ console.log(`Save images to disk -- /image == ${saveToDiskEnabled ? 'ENABLED' : 
 async function generateImage(userInput, imageModel, dimensions, numberOfImages, cfg, steps, seed, userID) {
     // Creates an empty array to store the image buffers in
     let imageBuffer = [];
-    const promises = [];
+    let promises = [];
     // Generates a randomID integer to be used in the file name for identification
     randomID.generate();
     // Get the correct dimensions for the image
@@ -202,13 +202,20 @@ async function generateImage(userInput, imageModel, dimensions, numberOfImages, 
 //Documentation
 // https://platform.stability.ai/docs/api-reference#tag/v1generation/operation/imageToImage
 async function generateImageToImage(imageFile, userInput, img2imgStrength, cfg, steps, seed, userID) {
+    seed = await genSeed();
+    console.log("---Generating image2image---");
+    console.log("\n\n--Sending img2img generation request to StabilityAI with the following parameters: \n" +
+    "-Prompt: " + userInput + "\n" +
+    "-Image2Img Strength: " + img2imgStrength + "\n" +
+    "-cfg-scale: " + cfg + "\n" +
+    "-Steps: " + steps + "\n" +
+    "-Seed: " + seed + "\n\n");
     let imageBuffer = [];
-    const jpegBuffer = await sharp(imageFile).jpeg().toBuffer();
     // Generate a hashed user ID to send to openai instead of the original user ID
     const hashedUserID = await generateHashedUserId(userID);
 
     const formData = new FormData();
-    formData.append('init_image', jpegBuffer);
+    formData.append('init_image', imageFile);
     formData.append('init_image_mode', "IMAGE_STRENGTH");
     formData.append('image_strength', img2imgStrength);
     formData.append('steps', steps);

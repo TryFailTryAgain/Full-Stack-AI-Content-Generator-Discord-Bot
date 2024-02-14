@@ -181,6 +181,16 @@ module.exports = {
                 .setStyle(ButtonStyle.Primary)
                 .setEmoji('🔄'),
             new ButtonBuilder()
+                .setCustomId('25similarity')
+                .setLabel('25% Similarity')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('🧬'),
+            new ButtonBuilder()
+                .setCustomId('50similarity')
+                .setLabel('50% Similarity')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('🧬'),
+            new ButtonBuilder()
                 .setCustomId('upscale')
                 .setLabel('Upscale')
                 .setStyle(ButtonStyle.Primary)
@@ -271,6 +281,123 @@ module.exports = {
             });
         });
         /* End of regenerate button handling */
+
+        /* 25% Similarity button handling */
+        // Builds the collector for the 25% similarity button
+        const similarity25CollectorFilter = i => i.customId === '25similarity' && i.user.id === interaction.user.id;
+        const similarity25Collector = reply.createMessageComponentCollector({ filter: similarity25CollectorFilter, time: 870_000 }); // 14.5 minutes, see first collector comment
+
+        // When the 25% similarity button is clicked, regenerate the image with 25% similarity and update the reply
+        similarity25Collector.on('collect', async i => {
+            // Disables the buttons to prevent more clicks
+            row.components.forEach(component => component.setDisabled(true));
+            // Update to show the disabled button but keep everything else as is
+            await i.update({
+                components: [row],
+            });
+
+            // Check if out of API credits
+            try {
+                if (await getBalance() < 0.2) { //current price is a flat 0.2 credits per image
+                    followUpEphemeral(interaction, "Out of API credits! Please consider donating to your server to keep this bot running!");
+                }
+            } catch (error) {
+                console.error(error);
+                followUpEphemeral(interaction, "An error occurred while fetching the API balance. Please try again");
+                return;
+            }
+            // Regenerate the image with 25% similarity and update the reply
+            try {
+                imageBuffer = await generateImageToImage(imageBuffer[0], userInput, 0.25, cfgScale, steps, seed, interaction.user.id);
+            }
+            catch (error) {
+                console.error(error);
+                followUpEphemeral(interaction, "An error occurred while generating the 25% similarity image. Please try again");
+                return;
+            }
+
+            // Slot the new images into the attachments array at the beginning so they are displayed first
+            for (let i = 0; i < imageBuffer.length; i++) {
+                attachments.unshift(new AttachmentBuilder(imageBuffer[i]));
+            }
+
+            // Limit the number of attachments to 9 as it keeps them in a grid.
+            // Discord also has a limit of max 10 attachments per message
+            let informIfTruncated = '';
+            if (attachments.length > 9) {
+                attachments = attachments.slice(0, 9); // End marker is excluded with .slice() so this returns the first 9 images 0 - 8
+                informIfTruncated = 'Oldest images have been truncated. Only the newest 9 images are shown due to a discord limitation\n';
+            }
+
+            // Re enable the buttons now that we have the new image to update with
+            row.components.forEach(component => component.setDisabled(false));
+            // Sends the new image to discord
+            await i.editReply({
+                content: '⬅️New Images first \n➡️Original Images last \n' + informIfTruncated + await lowBalanceMessage(),
+                files: attachments,
+                components: [row],
+            });
+        });
+        /* End of 25% similarity button handling */
+
+        /* 50% Similarity button handling */
+        // Builds the collector for the 50% similarity button
+        const similarity50CollectorFilter = i => i.customId === '50similarity' && i.user.id === interaction.user.id;
+        const similarity50Collector = reply.createMessageComponentCollector({ filter: similarity50CollectorFilter, time: 870_000 }); // 14.5 minutes, see first collector comment
+
+        // When the 50% similarity button is clicked, regenerate the image with 50% similarity and update the reply
+        similarity50Collector.on('collect', async i => {
+            // Disables the buttons to prevent more clicks
+            row.components.forEach(component => component.setDisabled(true));
+            // Update to show the disabled button but keep everything else as is
+            await i.update({
+                components: [row],
+            });
+
+            // Check if out of API credits
+            try {
+                if (await getBalance() < 0.2) { //current price is a flat 0.2 credits per image
+                    followUpEphemeral(interaction, "Out of API credits! Please consider donating to your server to keep this bot running!");
+                }
+            } catch (error) {
+                console.error(error);
+                followUpEphemeral(interaction, "An error occurred while fetching the API balance. Please try again");
+                return;
+            }
+            // Regenerate the image with 50% similarity and update the reply
+            try {
+                imageBuffer = await generateImageToImage(imageBuffer[0], userInput, 0.50, cfgScale, steps, seed, interaction.user.id);
+            }
+            catch (error) {
+                console.error(error);
+                followUpEphemeral(interaction, "An error occurred while generating the 50% similarity image. Please try again");
+                return;
+            }
+
+            // Slot the new images into the attachments array at the beginning so they are displayed first
+            for (let i = 0; i < imageBuffer.length; i++) {
+                attachments.unshift(new AttachmentBuilder(imageBuffer[i]));
+            }
+
+            // Limit the number of attachments to 9 as it keeps them in a grid.
+            // Discord also has a limit of max 10 attachments per message
+            let informIfTruncated = '';
+            if (attachments.length > 9) {
+                attachments = attachments.slice(0, 9); // End marker is excluded with .slice() so this returns the first 9 images 0 - 8
+                informIfTruncated = 'Oldest images have been truncated. Only the newest 9 images are shown due to a discord limitation\n';
+            }
+
+            // Re enable the buttons now that we have the new image to update with
+            row.components.forEach(component => component.setDisabled(false));
+            // Sends the new image to discord
+            await i.editReply({
+                content: '⬅️New Images first \n➡️Original Images last \n' + informIfTruncated + await lowBalanceMessage(),
+                files: attachments,
+                components: [row],
+            });
+        }
+        );
+        /* End of 50% similarity button handling */
 
 
         /* Upscale button handling */
