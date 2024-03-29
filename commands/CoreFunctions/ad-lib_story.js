@@ -13,14 +13,18 @@ const filter = new Filter({ placeHolder: '*' });
 
 //parse the api_keys.ini file to get the API key provided
 const apiKeys = ini.parse(fs.readFileSync('./api_keys.ini', 'utf-8'));
-const openAIKey = apiKeys.Keys.OpenAI;
+// Parse the settings.ini file to get the values
+const config = ini.parse(fs.readFileSync('./settings.ini', 'utf-8'));
+
+const openAIKey = apiKeys.Keys.OpenAIChat;
 if (openAIKey == "") {
     throw new Error("The OpenAI API key is not set. Please set it in the api_keys.ini file");
 }
-const openai = new OpenAI({apiKey: openAIKey});
+const openai = new OpenAI({ apiKey: openAIKey });
+// Get base URL for the API
+const openaiChatBaseURL = config.Advanced.OpenAI_Chat_Base_URL;
+openai.baseURL = openaiChatBaseURL;
 
-// Parse the settings.ini file to get the values
-const config = ini.parse(fs.readFileSync('./settings.ini', 'utf-8'));
 
 // This is a profanity filter that will prevent the bot from passing profanity and other rude words to the generator
 // It can be enabled or disabled in the config.json file
@@ -195,7 +199,7 @@ async function generateStory(userInput) {
     try {
         // Calls the OpenAI API to generate a story based on the prompt provided
         const story = await openai.chat.completions.create({
-            model: "gpt-3.5-turbo",
+            model: config.Ad_lib_story_settings.Prompt_Model,
             messages: [
                 // Provides instructions to the AI on how to generate the story
                 { role: "system", content: "You are a Madlibs style story writer who will always respond with a short story in its correct formatting by using [NOUN], [VERB], [ADVERB], [ADJECTIVE] to replace some words and nothing else. Your task is to generate a MadLibs style short story that has occasional placeholders where nouns, verbs, adjectives, and adverbs would be that are formatted as [NOUN], [VERB], [ADVERB], [ADJECTIVE]. Only replace some of the words with their appropriate placeholder so that when filled in with a user provided word it could make for a humorous story. You may or may not be provided with a user provided prompt that you should use to define the general direction of the story, if no prompt is provided when told what it is, you are free to write as you please." },

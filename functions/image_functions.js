@@ -24,8 +24,18 @@ const apiKeys = getIniFileContent(API_KEYS_FILE_PATH);
 // Validate API keys
 validateApiKeys(apiKeys);
 const StabilityAIKey = apiKeys.Keys.StabilityAI;
-const openAIKey = apiKeys.Keys.OpenAI;
-const openai = new OpenAI({ apiKey: openAIKey });
+const openAIChatKey = apiKeys.Keys.OpenAIChat;
+const openAIImageKey = apiKeys.Keys.OpenAIImage;
+
+// Get base URL for the API
+const openaiChatBaseURL = config.Advanced.OpenAI_Chat_Base_URL;
+const openaiImageBaseURL = config.Advanced.OpenAI_Image_Base_URL;
+// Set the API keys for OpenAI and the base URL
+const openaiChat = new OpenAI({ apiKey: openAIChatKey });
+openaiChat.baseURL = openaiChatBaseURL;
+const openaiImage = new OpenAI({ apiKey: openAIImageKey });
+openaiImage.baseURL = openaiImageBaseURL;
+
 // This is a profanity filter that will prevent the bot from passing profanity and other rude words to the generator
 // It can be enabled or disabled in the config.json file
 const profanityFilterEnabled = filterCheck();
@@ -62,7 +72,7 @@ async function generateImage(userInput, imageModel, dimensions, numberOfImages, 
         for (let i = 0; i < numberOfImages; i++) {
             // Have image generation run in parallel since with OpenAI we can only make one image request at this time
             const promise = (async () => {
-                const response = await openai.images.generate({
+                const response = await openaiImage.images.generate({
                     model: "dall-e-3",
                     prompt: userInput,
                     n: 1,
@@ -205,11 +215,11 @@ async function generateImageToImage(imageFile, userInput, img2imgStrength, cfg, 
     seed = await genSeed();
     console.log("---Generating image2image---");
     console.log("\n\n--Sending img2img generation request to StabilityAI with the following parameters: \n" +
-    "-Prompt: " + userInput + "\n" +
-    "-Image2Img Strength: " + img2imgStrength + "\n" +
-    "-cfg-scale: " + cfg + "\n" +
-    "-Steps: " + steps + "\n" +
-    "-Seed: " + seed + "\n\n");
+        "-Prompt: " + userInput + "\n" +
+        "-Image2Img Strength: " + img2imgStrength + "\n" +
+        "-cfg-scale: " + cfg + "\n" +
+        "-Steps: " + steps + "\n" +
+        "-Seed: " + seed + "\n\n");
     let imageBuffer = [];
     // Generate a hashed user ID to send to openai instead of the original user ID
     const hashedUserID = await generateHashedUserId(userID);
@@ -328,7 +338,7 @@ async function promptOptimizer(userInput, userID) {
     let response = null;
 
     try {
-        response = await openai.chat.completions.create({
+        response = await openaiChat.chat.completions.create({
             model: Prompt_Model,
             messages: [
                 {
@@ -379,7 +389,7 @@ async function adaptImagePrompt(currentPrompt, chatRefinementRequest, userID) {
     const hashedUserID = await generateHashedUserId(userID);
     let response = null;
     try {
-        response = await openai.chat.completions.create({
+        response = await openaiChat.chat.completions.create({
             model: Prompt_Model,
             messages: [
                 {
