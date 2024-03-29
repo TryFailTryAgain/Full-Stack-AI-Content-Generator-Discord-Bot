@@ -283,8 +283,8 @@ async function upscaleImage(imageBuffer, width) {
     }
     // Creates the form data that contains the image, width, file type, and authorization
     const formData = new FormData();
-    formData.append('image', new Blob([imageBuffer[0]], { type: 'image/png' }));
-    formData.append('width', imageBuffer[0].width * 2);
+    formData.append('image', imageBuffer, { contentType: 'image/png' });
+    formData.append('width', imageBuffer.width * 2);
 
     const response = await fetch(
         `${apiHost}/v1/generation/${engineId}/image-to-image/upscale`,

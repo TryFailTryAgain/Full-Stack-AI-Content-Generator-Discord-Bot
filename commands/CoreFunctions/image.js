@@ -201,13 +201,6 @@ module.exports = {
                 .setStyle(ButtonStyle.Primary)
                 .setEmoji('💬')
         );
-        // Check if multiple images were generated in the request as we can only upscale one at a time
-        // If > 1 are generated, Disable the upscale button
-        // TODO: Either add an /Upscale command and allow the user to supply an image or add a selector to select which image to upscale
-        if (numberOfImages > 1) {
-            row.components[1].setDisabled(true);
-            //row.components[2].setDisabled(true);
-        }
 
         // Edit the reply to show the generated image and the buttons
         let apiCreditReply = 'Image Generated! Consider funding me to cover API fees❤️';
@@ -267,12 +260,8 @@ module.exports = {
             for (let i = 0; i < imageBuffer.length; i++) {
                 attachments.push(new AttachmentBuilder(imageBuffer[i]));
             }
-            // Check if multiple images were generated in the request as we can only upscale or refine one at a time
-            // TODO: see above todo after action row creation
-            row.components[1].setDisabled(numberOfImages > 1);
-            // Re-enable the buttons that aren't affected by the number of images now that we have the new image to update with
-            row.components[0].setDisabled(false);
-            row.components[2].setDisabled(false);
+            // Re enable the buttons now that we have the new image to update with
+            row.components.forEach(component => component.setDisabled(false));
 
             await i.editReply({
                 content: await lowBalanceMessage(),
@@ -426,7 +415,7 @@ module.exports = {
             }
             // Upscale the most recent image and update the reply
             try {
-                imageBuffer = await upscaleImage(imageBuffer, width);
+                imageBuffer = await upscaleImage(imageBuffer[0], width);
                 // Double the width for the next upscale for max width check
                 width = width * 2;
             } catch (error) {
