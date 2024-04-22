@@ -4,6 +4,7 @@
   "description": "https://github.com/TryFailTryAgain/Full-Stack-AI-Meme-Generator-Discord-Bot",
   "main": "index.js",
   "dependencies": {
+    "axios": "^1.6.8",
     "bad-words": "^3.0.4",
     "busboy": "^1.6.0",
     "discord-api-types": "^0.37.50",

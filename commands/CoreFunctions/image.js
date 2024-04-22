@@ -27,6 +27,12 @@ module.exports = {
                 .setMaxLength(500)
                 .setRequired(true)
         )
+        .addStringOption(option =>
+            option.setName('negative-prompt')
+                .setDescription('What you dont want in the image')
+                .setMaxLength(500)
+                .setRequired(false)
+        )
         .addBooleanOption(option =>
             option.setName('disable-optimization')
                 .setDescription('Disables the AI Optimization of the input prompt.')
@@ -53,6 +59,8 @@ module.exports = {
             option.setName('image-model')
                 .setDescription('The engine to use for generating the image')
                 .addChoices(
+                    { name: 'SD 3.0', value: 'sd3' },
+                    { name: 'SD 3.0 Turbo', value: 'sd3-turbo' },
                     { name: 'Dall-E 3', value: 'dall-e-3' },
                     { name: 'SDXL 1.0', value: 'stable-diffusion-xl-1024-v1-0' },
                     { name: 'SD 1.6', value: 'stable-diffusion-v1-6' },
@@ -83,7 +91,7 @@ module.exports = {
         )
         .addIntegerOption(option =>
             option.setName('seed')
-                .setDescription('ONLY available with image model SDXL and SD1.6 - The seed number to use for the image')
+                .setDescription('ONLY available with image model SD3/turbo, SDXL and SD1.6 - The seed number to use for the image')
                 .setMinValue(1)
                 .setMaxValue(4294967295)
                 .setRequired(false)
@@ -99,11 +107,12 @@ module.exports = {
 
         // Gets the user input and other options from the command then optionally filters it if settings.ini - Filter_Naughty_Words is set to true
         // Defaults are set if the user does not provide them
-        let userInput = interaction.options.getString('prompt');
+        let originalUserInput = interaction.options.getString('prompt');
+        let negativePrompt = interaction.options.getString('negative-prompt') || "low resolution, bad quality, warped image, jpeg artifacts, worst quality, lowres, blurry";
         let disableOptimizePrompt = interaction.options.getBoolean('disable-optimization') || false;
         let dimensions = interaction.options.getString('dimensions') || 'square';
         let numberOfImages = interaction.options.getInteger('number-of-images') || 1;
-        let imageModel = interaction.options.getString('image-model') || 'dall-e-3';
+        let imageModel = interaction.options.getString('image-model') || 'sd3';
         let cfgScale = interaction.options.getInteger('cfg-scale') || 6;
         let steps = interaction.options.getInteger('steps') || 40;
         let seed = interaction.options.getInteger('seed') || await genSeed();
@@ -114,7 +123,7 @@ module.exports = {
         // Prompt filtering
         try {
             if (await filterCheck()) {
-                userInput = await filterString(userInput);
+                originalUserInput = await filterString(originalUserInput);
             }
         } catch (error) {
             console.error(error);
@@ -122,12 +131,36 @@ module.exports = {
             return;
         }
 
+        // Create a dynamic variable for the user input so it can be optimized or changed later but we retain the original.
+        let userInput = originalUserInput;
+
         /* Image generation */
 
         // If not using OpenAI, check Stability if out of API credits
         if (imageModel != 'dall-e-3') {
             try {
-                if (await getBalance() < 0.23 * numberOfImages) { //current SDXL price is 0.23 credits per image at 40 steps
+                let pricePerImage = 0;
+                switch (imageModel) {
+                    case 'sd3':
+                        pricePerImage = 6.5;
+                        break;
+                    case 'sd3-turbo':
+                        pricePerImage = 4;
+                        break;
+                    case 'core':
+                        pricePerImage = 3;
+                        break;
+                    case 'sdxl-1.0':
+                        pricePerImage = 0.2;
+                        break;
+                    case 'sd-1.6':
+                        pricePerImage = 0.2;
+                        break;
+                    default:
+                        pricePerImage = 0;
+                        break;
+                }
+                if (await getBalance() < pricePerImage * numberOfImages) {
                     deleteAndFollowUpEphemeral(interaction, 'Out of API credits! Please consider donating to your server to keep this bot running!');
                     return;
                 }
@@ -141,7 +174,7 @@ module.exports = {
         let optimized_Prompt = null;
         if (!disableOptimizePrompt) {
             try {
-                optimized_Prompt = await promptOptimizer(userInput, interaction.user.id);
+                optimized_Prompt = await promptOptimizer(originalUserInput, interaction.user.id);
             } catch (error) {
                 console.error(error);
                 deleteAndFollowUpEphemeral(interaction, "An error occurred while optimizing the prompt. Please try again");
@@ -155,7 +188,7 @@ module.exports = {
         // Generate the image
         let imageBuffer = null;
         try {
-            imageBuffer = await generateImage(userInput, imageModel, dimensions, numberOfImages, cfgScale, steps, seed, interaction.user.id);
+            imageBuffer = await generateImage(userInput, negativePrompt, imageModel, dimensions, numberOfImages, cfgScale, steps, seed, interaction.user.id);
         } catch (error) {
             console.error(error);
             // check for returned error for Stability and OpenAI, respectively
@@ -245,9 +278,23 @@ module.exports = {
             }
             // Generate a new seed for new images
             seed = await genSeed();
+
+            // TODO regenerate the user prompt if the user has not disabled the optimization
+            if (!disableOptimizePrompt) {
+                try {
+                    optimized_Prompt = await promptOptimizer(originalUserInput, interaction.user.id);
+                } catch (error) {
+                    console.error(error);
+                    deleteAndFollowUpEphemeral(interaction, "An error occurred while optimizing the prompt. Please try again");
+                    return;
+                }
+                // Sets the user input to the new optimized prompt
+                userInput = optimized_Prompt;
+            }
+
             // Regenerate the image and update the reply
             try {
-                imageBuffer = await generateImage(userInput, imageModel, dimensions, numberOfImages, cfgScale, steps, seed, interaction.user.id);
+                imageBuffer = await generateImage(userInput, negativePrompt, imageModel, dimensions, numberOfImages, cfgScale, steps, seed, interaction.user.id);
             } catch (error) {
                 console.error(error);
                 followUpEphemeral(interaction, "An error occurred while regenerating the image. Please try again");
@@ -297,7 +344,7 @@ module.exports = {
             }
             // Regenerate the image with 25% similarity and update the reply
             try {
-                imageBuffer = await generateImageToImage(imageBuffer[0], userInput, 0.25, cfgScale, steps, seed, interaction.user.id);
+                imageBuffer = await generateImageToImage(imageBuffer[0], userInput, negativePrompt, 0.75, seed, interaction.user.id);
             }
             catch (error) {
                 console.error(error);
@@ -355,7 +402,7 @@ module.exports = {
             }
             // Regenerate the image with 50% similarity and update the reply
             try {
-                imageBuffer = await generateImageToImage(imageBuffer[0], userInput, 0.50, cfgScale, steps, seed, interaction.user.id);
+                imageBuffer = await generateImageToImage(imageBuffer[0], userInput, negativePrompt, 0.50, seed, interaction.user.id);
             }
             catch (error) {
                 console.error(error);
@@ -477,7 +524,7 @@ module.exports = {
                     try {
                         // TODO: ad the ability to change the modification strength via the modal. Currently defaults to: 0.5
                         // Generate a similar image using img2img from Stability.ai
-                        imageBuffer = await generateImageToImage(imageBuffer[0], userInput, 0.50, cfgScale, steps, seed, interaction.user.id);
+                        imageBuffer = await generateImageToImage(imageBuffer[0], userInput, negativePrompt, 0.50, seed, interaction.user.id);
                     } catch (error) {
                         console.error(error);
                         followUpEphemeral(interaction, "An error occurred while generating the refined image. Please try again");
@@ -486,7 +533,7 @@ module.exports = {
                 } else {
                     // Pass all the parameters to the image generation function with identical seed so images are closer to the original
                     try {
-                        imageBuffer = await generateImage(userInput, imageModel, dimensions, numberOfImages, cfgScale, steps, seed, interaction.user.id);
+                        imageBuffer = await generateImage(userInput, negativePrompt, imageModel, dimensions, numberOfImages, cfgScale, steps, seed, interaction.user.id);
                     } catch (error) {
                         console.error(error);
                         followUpEphemeral(interaction, "An error occurred while generating the refined image. Please try again");
