@@ -557,10 +557,10 @@ async function lowBalanceMessage() {
     const balance = await getBalance();
     let message = '';
     switch (true) {
-        case (balance < 50):
+        case (balance < 100):
             message = 'Almost out of api credits, please consider sending your bot host a few bucks to keep me running ❤️';
             break;
-        case (balance < 200):
+        case (balance < 300):
             message = 'Consider funding your bot host $1 ❤️';
             break;
         default:
@@ -706,6 +706,54 @@ function getDimensions(imageModel, dimensionType) {
 
     return dimensions;
 }
+
+// Automatically disable unneeded prompt optimization for more advanced image models
+function autoDisableUnneededPromptOptimization(imageModel) {
+    // List of models for which the optimization should be disabled
+    const modelsToDisable = ['dall-e-3', 'sd3', 'sd3-turbo'];
+
+    // Check if the current image model is in the list
+    if (modelsToDisable.includes(imageModel)) {
+        console.log(`Prompt optimization is disabled for the ${imageModel} model`);
+        return true;
+    } else {
+        return false;
+    }
+}
+
+async function checkSDBalance(imageModel, numberOfImages) {
+    if (imageModel != 'dall-e-3') {
+        try {
+            let pricePerImage = 0;
+            switch (imageModel) {
+                case 'sd3':
+                    pricePerImage = 6.5;
+                    break;
+                case 'sd3-turbo':
+                    pricePerImage = 4;
+                    break;
+                case 'core':
+                    pricePerImage = 3;
+                    break;
+                case 'sdxl-1.0':
+                case 'sd-1.6':
+                    pricePerImage = 0.2;
+                    break;
+                default:
+                    pricePerImage = 0;
+                    break;
+            }
+            if (await getBalance() < pricePerImage * numberOfImages) {
+                return false;
+            }
+        } catch (error) {
+            console.error(error);
+            return false;
+        }
+    }
+    return true;
+}
+
 /* End of functions */
 
 // Export the functions
@@ -729,4 +777,6 @@ module.exports = {
     genSeed,
     getDimensions,
     generateImageToImage,
+    autoDisableUnneededPromptOptimization,
+    checkSDBalance,
 };

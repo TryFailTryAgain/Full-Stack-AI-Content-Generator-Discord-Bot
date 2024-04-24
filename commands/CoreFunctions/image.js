@@ -3,20 +3,20 @@
 // Copyright (c) 2023. All rights reserved. For use in Open-Source projects this
 // may be freely copied or excerpted with credit to the author.
 
-/* Getting required modules */
+////* Getting required modules *////
 const { SlashCommandBuilder, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Events, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 
-/* Getting required local files */
+////* Getting required local files *////
 const imageFunctions = require('../../functions/image_functions.js');
 const ImageChatModal = require('../../components/imageChatModal.js');
 // Add all the image functions to the global scope
 for (let key in imageFunctions) {
     global[key] = imageFunctions[key];
 }
-/* End getting required modules */
+////* End getting required modules and local files *////
 
 module.exports = {
-    /* Frame of the command */
+    ////* Frame of the command *////
     cooldown: 1,
     data: new SlashCommandBuilder()
         .setName('image')
@@ -97,9 +97,9 @@ module.exports = {
                 .setRequired(false)
         ),
 
-    /* End of the command framing */
+    ////* End of the command framing *////
 
-    /* Start of the command functional execution */
+    ////* Start of the command functional execution *////
     async execute(interaction, client) {
         // Responds to the command to prevent discord timeout and this will display that the bot is thinking
         // Editing with .editReply will remove the loading message and replace it with the new message
@@ -109,13 +109,13 @@ module.exports = {
         // Defaults are set if the user does not provide them
         let originalUserInput = interaction.options.getString('prompt');
         let negativePrompt = interaction.options.getString('negative-prompt') || "low resolution, bad quality, warped image, jpeg artifacts, worst quality, lowres, blurry";
-        let disableOptimizePrompt = interaction.options.getBoolean('disable-optimization') || false;
         let dimensions = interaction.options.getString('dimensions') || 'square';
         let numberOfImages = interaction.options.getInteger('number-of-images') || 1;
         let imageModel = interaction.options.getString('image-model') || 'sd3';
         let cfgScale = interaction.options.getInteger('cfg-scale') || 6;
         let steps = interaction.options.getInteger('steps') || 40;
         let seed = interaction.options.getInteger('seed') || await genSeed();
+        let disableOptimizePrompt = interaction.options.getBoolean('disable-optimization') || autoDisableUnneededPromptOptimization(imageModel);
 
         // Split out the width to check if it is over X during upscaling
         let width = parseInt(dimensions.split('x')[0]);
@@ -134,42 +134,13 @@ module.exports = {
         // Create a dynamic variable for the user input so it can be optimized or changed later but we retain the original.
         let userInput = originalUserInput;
 
-        /* Image generation */
-
-        // If not using OpenAI, check Stability if out of API credits
-        if (imageModel != 'dall-e-3') {
-            try {
-                let pricePerImage = 0;
-                switch (imageModel) {
-                    case 'sd3':
-                        pricePerImage = 6.5;
-                        break;
-                    case 'sd3-turbo':
-                        pricePerImage = 4;
-                        break;
-                    case 'core':
-                        pricePerImage = 3;
-                        break;
-                    case 'sdxl-1.0':
-                        pricePerImage = 0.2;
-                        break;
-                    case 'sd-1.6':
-                        pricePerImage = 0.2;
-                        break;
-                    default:
-                        pricePerImage = 0;
-                        break;
-                }
-                if (await getBalance() < pricePerImage * numberOfImages) {
-                    deleteAndFollowUpEphemeral(interaction, 'Out of API credits! Please consider donating to your server to keep this bot running!');
-                    return;
-                }
-            } catch (error) {
-                console.error(error);
-                deleteAndFollowUpEphemeral(interaction, "An error occurred while fetching the API balance. Please try again");
-                return;
-            }
+        ////* Image generation *////
+        // Check if out of Stability API credits
+        if (!await checkSDBalance(imageModel, numberOfImages)) {
+            deleteAndFollowUpEphemeral(interaction, 'Out of API credits! Please consider donating to your server to keep this bot running!');
+            return;
         }
+
         // Optimize the prompt unless the user has specifically asked not to
         let optimized_Prompt = null;
         if (!disableOptimizePrompt) {
@@ -204,7 +175,7 @@ module.exports = {
         for (let i = 0; i < imageBuffer.length; i++) {
             attachments.push(new AttachmentBuilder(imageBuffer[i]));
         }
-        /* End of image generation */
+        ////* End of image generation *////
 
         // Makes the ActionRow and adds the regen, upscale, and chat refinement buttons to it
         const row = new ActionRowBuilder().addComponents(
