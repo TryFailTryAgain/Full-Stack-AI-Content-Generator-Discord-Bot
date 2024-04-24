@@ -234,7 +234,9 @@ async function generateImage(userInput, negativePrompt, imageModel, dimensions, 
             formData.append("prompt", userInput);
             formData.append("output_format", "png");
             formData.append("mode", "text-to-image");
+            if(imageModel != "sd3-turbo") { // sd3-turbo does not support negative prompts
             formData.append("negative_prompt", negativePrompt);
+            }
             formData.append("aspect_ratio", aspectRatio);
 
             const response = await axios.post(
