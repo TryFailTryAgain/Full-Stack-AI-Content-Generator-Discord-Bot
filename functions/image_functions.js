@@ -340,6 +340,61 @@ async function generateImageToImage(imageFile, userInput, negativePrompt, streng
     return imageBuffer;
 }
 
+// Documentation:
+// https://platform.stability.ai/docs/api-reference#tag/Edit/paths/~1v2beta~1stable-image~1edit~1search-and-replace/post
+async function searchAndReplace(imageFile, search, replace, negative_prompt, userID) {
+    let imageBuffer = [];
+    console.log("---Searching and replacing image via Stable Diffusion 3.0---");
+    console.log("--Sending generation request to StabilityAI with the following parameters: \n" +
+        "-Search: " + search + "\n" +
+        "-Replace: " + replace + "\n" +
+        "-User ID: " + userID + "\n\n");
+    //TODO: add the api call and image processing
+    const apiUrl = `https://api.stability.ai/v2beta/stable-image/edit/search-and-replace`;
+
+    const formData = new FormData();
+    formData.append('prompt', replace);
+    formData.append('search_prompt', search);
+    formData.append('image', imageFile, { filename: 'image.' + config.Advanced.Send_Images_As, contentType: 'image/' + config.Advanced.Send_Images_As });
+    formData.append('output_format', 'png');
+    formData.append('negative_prompt', negative_prompt);
+
+    const response = await axios.post(
+        apiUrl,
+        formData,
+        {
+            validateStatus: undefined,
+            responseType: "arraybuffer",
+            headers: {
+                Authorization: StabilityAIKey,
+                Accept: "image/*",
+                ...formData.getHeaders(),
+            },
+        },
+    );
+
+    if (response.status === 200) {
+        const saveBuffer = await sharp(Buffer.from(response.data))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+        // Saves images to disk if the setting is enabled, otherwise only send them to Discord
+        if (saveToDiskCheck()) {
+            const filePath = `./Outputs/txt2img_${randomID.get()}_.${config.Advanced.Save_Images_As}`;
+            await fs.promises.writeFile(filePath, saveBuffer);
+            console.log(`Saved Image: ${filePath}`);
+        }
+
+        // Convert the image to the specified format for sending
+        // If Save and Send are the same then don't convert it again
+        if (config.Advanced.Save_Images_As == config.Advanced.Send_Images_As) {
+            imageBuffer.push(saveBuffer);
+        } else {
+            const sendBuffer = await sharp(Buffer.from(response.data))[config.Advanced.Send_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+            imageBuffer.push(sendBuffer);
+        }
+    } else {
+        throw new Error(`${response.status}: ${response.data.toString()}`);
+    }
+    return imageBuffer;
+}
 
 // Documentation:
 // https://platform.stability.ai/docs/api-reference#tag/v1generation/operation/upscaleImage
@@ -781,4 +836,5 @@ module.exports = {
     generateImageToImage,
     autoDisableUnneededPromptOptimization,
     checkSDBalance,
+    searchAndReplace,
 };

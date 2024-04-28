@@ -146,6 +146,10 @@ module.exports = {
         if (!disableOptimizePrompt) {
             try {
                 optimized_Prompt = await promptOptimizer(originalUserInput, interaction.user.id);
+                // Filter the optimized prompt if the filter is enabled
+                if (await filterCheck()) {
+                    optimized_Prompt = await filterString(optimized_Prompt);
+                }
             } catch (error) {
                 console.error(error);
                 deleteAndFollowUpEphemeral(interaction, "An error occurred while optimizing the prompt. Please try again");
@@ -482,35 +486,17 @@ module.exports = {
                     components: [row],
                 });
 
-                // Wait for the modal submit interaction
-                const chatRefinementRequest = await ImageChatModal.waitForModalSubmit(i);
-                console.log(chatRefinementRequest);
+                // Wait for the modal submit interaction and get the values from the modal
+                let { toBeReplaced, replaceWith, negativePrompt: searchReplaceNegativePrompt } = await ImageChatModal.waitForModalSubmit(i);
 
-                // set the userInput aka the prompt to the new adapted prompt
-                userInput = await adaptImagePrompt(userInput, chatRefinementRequest, i.user.id);
-
-                // Adapt the image differently depending on the image model as Dall-e 3 does not have a seed method.
-                //    TODO: This could potentially be the best solution for Stability ai too but I have not tested it yet
-                if (imageModel == 'dall-e-3') {
-                    try {
-                        // TODO: ad the ability to change the modification strength via the modal. Currently defaults to: 0.5
-                        // Generate a similar image using img2img from Stability.ai
-                        imageBuffer = await generateImageToImage(imageBuffer[0], userInput, negativePrompt, 0.50, seed, interaction.user.id);
-                    } catch (error) {
-                        console.error(error);
-                        followUpEphemeral(interaction, "An error occurred while generating the refined image. Please try again");
-                        return;
-                    }
-                } else {
-                    // Pass all the parameters to the image generation function with identical seed so images are closer to the original
-                    try {
-                        imageBuffer = await generateImage(userInput, negativePrompt, imageModel, dimensions, numberOfImages, cfgScale, steps, seed, interaction.user.id);
-                    } catch (error) {
-                        console.error(error);
-                        followUpEphemeral(interaction, "An error occurred while generating the refined image. Please try again");
-                        return;
-                    }
+                // Filter all the new user inputs if the filter is enabled
+                if (await filterCheck()) {
+                    toBeReplaced = await filterString(toBeReplaced);
+                    replaceWith = await filterString(replaceWith);
+                    searchReplaceNegativePrompt = await filterString(searchReplaceNegativePrompt);
                 }
+                // Regenerate the image with the chat refinement, then update the reply
+                imageBuffer = await searchAndReplace(imageBuffer[0], toBeReplaced, replaceWith, searchReplaceNegativePrompt, interaction.user.id);
 
                 // Slot the new images into the attachments array at the beginning so they are displayed first
                 for (let i = 0; i < imageBuffer.length; i++) {
