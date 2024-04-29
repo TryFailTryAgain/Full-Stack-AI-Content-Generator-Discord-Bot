@@ -12,7 +12,6 @@ const axios = require('axios');
 /* End getting required modules */
 
 /* Some global variables for ease of access */
-const apiHost = 'https://api.stability.ai';
 
 // File paths
 const SETTINGS_FILE_PATH = './settings.ini';
@@ -47,12 +46,9 @@ console.log(`Save images to disk -- /image == ${saveToDiskEnabled ? 'ENABLED' : 
 
 
 /* Functions */
-// Documentation:
-// https://platform.stability.ai/docs/api-reference#tag/v1generation/operation/textToImage
 async function generateImage(userInput, negativePrompt, imageModel, dimensions, numberOfImages, cfg, steps, seed, userID) {
     // Creates an empty array to store the image buffers in
     let imageBuffer = [];
-    let promises = [];
     // Generates a randomID integer to be used in the file name for identification
     randomID.generate();
     // Get the correct dimensions for the image
@@ -60,222 +56,192 @@ async function generateImage(userInput, negativePrompt, imageModel, dimensions, 
     // Generate a hashed user ID to send to openai instead of the original user ID
     const hashedUserID = await generateHashedUserId(userID);
 
-    /* OpenAI image generation */
-    // Check what Image_Model is configured in settings.ini
     if (imageModel == "dall-e-3") {
-        console.log("---Generating image via OpenAI---");
-        console.log("\n\n--Sending generation request to OpenAI with the following parameters: \n" +
-            "-Prompt: " + userInput + "\n" +
-            "-Number of images: " + numberOfImages + "\n" +
-            "-Dimensions: " + trueDimensions + "\n" +
-            "-Dall-E Model: " + "dall-e-3" + "\n" +
-            "-User ID: " + hashedUserID + "\n\n");
-        for (let i = 0; i < numberOfImages; i++) {
-            // Have image generation run in parallel since with OpenAI we can only make one image request at this time
-            const promise = (async () => {
-                const response = await openaiImage.images.generate({
-                    model: "dall-e-3",
-                    prompt: userInput,
-                    n: 1,
-                    size: trueDimensions,
-                    quality: "standard", // "standard" or "hd" TODO: Add this to command options
-                    style: "vivid", // "natural" or "vivid  TODO: Add this to command options
-                    response_format: "b64_json",
-                    user: toString(hashedUserID),
-                });
-                console.log("--Image #" + (i + 1) + " generation completed--\n");
-                const revised_prompt = response.data[0].revised_prompt;
-                console.log("-OpenAI Revised String for Image #" + (i + 1) + ": \n" + revised_prompt + "\n");
-                const saveBuffer = await sharp((Buffer.from(response.data[0].b64_json, 'base64')))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
-
-                // Saves images to disk if the setting is enabled, otherwise only send them to Discord
-                if (saveToDiskCheck()) {
-                    fs.writeFileSync(
-                        `./Outputs/txt2img_${randomID.get()}_${i + 1}.${config.Advanced.Save_Images_As}`,
-                        saveBuffer
-                    );
-                    console.log(`Saved Image: ./Outputs/txt2img_${randomID.get()}.${config.Advanced.Save_Images_As}`);
-                }
-
-                // Convert the image to the specified format for sending
-                // If Save and Send are the same then don't convert it again
-                if (config.Advanced.Save_Images_As == config.Advanced.Send_Images_As) {
-                    imageBuffer.push(saveBuffer);
-                } else {
-                    const sendBuffer = await sharp(saveBuffer)[config.Advanced.Send_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
-                    imageBuffer.push(sendBuffer);
-                }
-                // Resolve the promises    
-            })();
-            // Push the promise to the array
-            promises.push(promise);
-        }
-        // Waits for all the promises to resolve before returning the image buffer
-        await Promise.allSettled(promises);
-        // return the image buffer full of the generated images
-        console.log("Image generated and converted to " + config.Advanced.Send_Images_As + " format");
-        return imageBuffer;
-    }
-    /* End OpenAI image generation */
-
-    /* REST API call to StabilityAI */
-    if (imageModel == "stable-diffusion-v1-6" || imageModel == "stable-diffusion-xl-1024-v1-0") {
-        console.log("---Generating image---");
-        console.log("\n\n--Sending generation request to StabilityAI with the following parameters: \n" +
-            "-Prompt: " + userInput + "\n" +
-            "-Dimensions: " + trueDimensions + "\n" +
-            "-Stable Diffusion Engine: " + imageModel + "\n" +
-            "-cfg-scale: " + cfg + "\n" +
-            "-Steps: " + steps + "\n" +
-            "-Seed: " + seed + "\n\n");
-
-        // Split the dimensions string into height and width
-        const [width, height] = trueDimensions.split('x').map(Number);
-        console.log("Width: " + width + "   Height: " + height);
-
-        await fetch(`${apiHost}/v1/generation/${imageModel}/text-to-image`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
-                Authorization: StabilityAIKey,
-                'Stability-Client-ID': hashedUserID,
-            },
-            body: JSON.stringify({
-                text_prompts: [
-                    {
-                        text: userInput,
-                    },
-                    {
-                        // A generic negative prompt to guide the generation to be higher quality overall. This is a temporary solution
-                        // TODO: This should be generated by the AI optimizer but at the moment it is extremely unreliable with gpt 3.5 and
-                        //      gpt-4 is not yet perfected and will need a better prompt to guide it.
-                        "text": "low resolution, bad quality, warped image, jpeg artifacts, worst quality, lowres, blurry",
-                        "weight": -1
-                    }
-                ],
-                // Defines the parameters for the image generation specified by the user
-                cfg_scale: cfg,
-                width: width,
-                height: height,
-                steps: steps,
-                samples: numberOfImages,
-                seed: seed,
-            }),
-        })
-            .then(async (response) => {
-                if (!response.ok) {
-                    throw new Error(`Non-200 response: ${await response.text()}`);
-                }
-                console.log("Generation completed response heard!");
-                const responseJSON = await response.json();
-
-                for (const [index, image] of responseJSON.artifacts.entries()) {
-                    // Have image conversion run in parallel
-                    const promise = (async () => {
-                        // Convert the image to the specified format for saving
-                        const saveBuffer = await sharp(Buffer.from(image.base64, 'base64'))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
-
-                        // Saves images to disk if the setting is enabled, otherwise only send them to Discord
-                        if (saveToDiskCheck()) {
-                            fs.writeFileSync(
-                                `./Outputs/txt2img_${randomID.get()}_${index + 1}.${config.Advanced.Save_Images_As}`,
-                                saveBuffer
-                            );
-                            console.log(`Saved Image: ./Outputs/txt2img_${randomID.get()}_${index + 1}.${config.Advanced.Save_Images_As}`);
-                        }
-
-                        // Convert the image to the specified format for sending
-                        // If Save and Send are the same then don't convert it again
-                        if (config.Advanced.Save_Images_As == config.Advanced.Send_Images_As) {
-                            imageBuffer.push(saveBuffer);
-                        } else {
-                            const sendBuffer = await sharp(saveBuffer)[config.Advanced.Send_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
-                            imageBuffer.push(sendBuffer);
-                        }
-                    })();
-                    // Push the promise to the array
-                    promises.push(promise);
-                }
-            })
-            .catch((error) => {
-                console.error(error);
-                // Throws another error to be caught when the function is called
-                throw new Error(`Error: ${error}`);
-            });
-
-        // return the image buffer full of the generated images
-        // Waits for all the promises to resolve before returning the image buffer
-        await Promise.allSettled(promises);
-        return imageBuffer;
-        /* End REST API call to StabilityAI */
+        imageBuffer = await generateImageViaDallE3(userInput, trueDimensions, numberOfImages, hashedUserID, randomID);
+    } else if (imageModel == "stable-diffusion-v1-6" || imageModel == "stable-diffusion-xl-1024-v1-0") {
+        imageBuffer = await generateImageViaStabilityAIv1(userInput, negativePrompt, trueDimensions, imageModel, numberOfImages, cfg, steps, seed, hashedUserID, randomID);
+    } else if (imageModel == "sd3" || imageModel == "sd3-turbo") {
+        imageBuffer = await generateImageViaSD3(userInput, negativePrompt, trueDimensions, imageModel, numberOfImages, randomID);
     }
 
+    return imageBuffer;
+}
 
-    /* Stable Diffusion 3.0 API call */
-    if (imageModel == "sd3" || imageModel == "sd3-turbo") {
+// Function to generate an image via Dall-E-3
+async function generateImageViaDallE3(userInput, trueDimensions, numberOfImages, hashedUserID, randomID) {
+    // Log the parameters to the console
+    console.log('\n---Generating image via Dall-E-3---');
+    console.log('-User Input:', userInput);
+    console.log('-True Dimensions:', trueDimensions);
+    console.log('-Number of Images:', numberOfImages);
+    console.log('-Hashed User ID:', hashedUserID);
 
-        // Get the correct dimensions for the image
-        const aspectRatio = getDimensions(imageModel, dimensions);
-        
-        console.log("---Generating image via Stable Diffusion 3.0---");
-        console.log("\n\n--Sending generation request to StabilityAI with the following parameters: \n" +
-            "-Prompt: " + userInput + "\n" +
-            "-Negative Prompt: " + negativePrompt + "\n" +
-            "-Image Model: " + imageModel + "\n" +
-            "-Number of images: " + numberOfImages + "\n" +
-            "-User ID: " + hashedUserID + "\n\n");
+    let imageBuffer = [];
 
-        const apiUrl = `https://api.stability.ai/v2beta/stable-image/generate/sd3`;
-
-        for (let i = 0; i < numberOfImages; i++) {
-            const formData = new FormData();
-            formData.append("model", imageModel);
-            formData.append("prompt", userInput);
-            formData.append("output_format", "png");
-            formData.append("mode", "text-to-image");
-            if(imageModel != "sd3-turbo") { // sd3-turbo does not support negative prompts
-            formData.append("negative_prompt", negativePrompt);
-            }
-            formData.append("aspect_ratio", aspectRatio);
-
-            const response = await axios.post(
-                apiUrl,
-                formData,
-                {
-                    responseType: "arraybuffer",
-                    headers: {
-                        Authorization: StabilityAIKey,
-                        Accept: "image/*",
-                        ...formData.getHeaders(),
-                    },
-                }
+    for (let i = 0; i < numberOfImages; i++) {
+        const response = await openaiImage.images.generate({
+            model: "dall-e-3",
+            prompt: userInput,
+            n: 1,
+            size: trueDimensions,
+            quality: "standard", // "standard" or "hd" TODO: Add this to command options
+            style: "natural", // "natural" or "vivid  TODO: Add this to command options
+            response_format: "b64_json",
+            user: toString(hashedUserID),
+        });
+        // Process and save the generated image
+        const saveBuffer = await sharp((Buffer.from(response.data[0].b64_json, 'base64')))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+        if (saveToDiskCheck()) {
+            fs.writeFileSync(
+                `./Outputs/txt2img_${randomID.get()}_${i + 1}.${config.Advanced.Save_Images_As}`,
+                saveBuffer
             );
-
-            if (response.status === 200) {
-                const saveBuffer = await sharp(Buffer.from(response.data))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
-                // Saves images to disk if the setting is enabled, otherwise only send them to Discord
-                if (saveToDiskCheck()) {
-                    const filePath = `./Outputs/txt2img_${randomID.get()}_${i + 1}.${config.Advanced.Save_Images_As}`;
-                    await fs.promises.writeFile(filePath, saveBuffer);
-                    console.log(`Saved Image: ${filePath}`);
-                }
-
-                // Convert the image to the specified format for sending
-                // If Save and Send are the same then don't convert it again
-                if (config.Advanced.Save_Images_As == config.Advanced.Send_Images_As) {
-                    imageBuffer.push(saveBuffer);
-                } else {
-                    const sendBuffer = await sharp(Buffer.from(response.data))[config.Advanced.Send_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
-                    imageBuffer.push(sendBuffer);
-                }
-            } else {
-                throw new Error(`${response.status}: ${response.data.toString()}`);
-            }
         }
-        return imageBuffer;
+        if (config.Advanced.Save_Images_As == config.Advanced.Send_Images_As) {
+            imageBuffer.push(saveBuffer);
+        } else {
+            const sendBuffer = await sharp(saveBuffer)[config.Advanced.Send_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+            imageBuffer.push(sendBuffer);
+        }
     }
-    /* End Stable Diffusion 3.0 API call */
+    console.log("RETURNING");
+    return imageBuffer;
+}
+
+// Function to generate an image via StabilityAI v1
+async function generateImageViaStabilityAIv1(userInput, negativePrompt, trueDimensions, imageModel, numberOfImages, cfg, steps, seed, hashedUserID, randomID) {
+    const apiHost = 'https://api.stability.ai';
+    let imageBuffer = [];
+    let promises = [];
+    const [width, height] = trueDimensions.split('x').map(Number);
+    if (negativePrompt == "") negativePrompt = "bad quality, low resolution, low quality, blurry, lowres, jpeg artifacts, warped image, worst quality";
+
+    // Log the parameters to the console
+    console.log('\n---Generating image via StabilityAI API v1---');
+    console.log('-User Input:', userInput);
+    console.log('-Negative Prompt:', negativePrompt);
+    console.log('-True Dimensions:', trueDimensions);
+    console.log('-Image Model:', imageModel);
+    console.log('-Number of Images:', numberOfImages);
+    console.log('-CFG Scale:', cfg);
+    console.log('-Steps:', steps);
+    console.log('-Seed:', seed);
+    console.log('-Hashed User ID:', hashedUserID);
+
+    await fetch(`${apiHost}/v1/generation/${imageModel}/text-to-image`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            Authorization: StabilityAIKey,
+            'Stability-Client-ID': hashedUserID,
+        },
+        body: JSON.stringify({
+            text_prompts: [
+                {
+                    text: userInput,
+                },
+                {
+                    "text": negativePrompt,
+                    "weight": -1
+                }
+            ],
+            cfg_scale: cfg,
+            width: width,
+            height: height,
+            steps: steps,
+            samples: numberOfImages,
+            seed: seed,
+        }),
+    })
+        .then(async (response) => {
+            if (!response.ok) {
+                throw new Error(`Non-200 response: ${await response.text()}`);
+            }
+            // Process and save the generated image
+            const responseJSON = await response.json();
+            for (const [index, image] of responseJSON.artifacts.entries()) {
+                const promise = (async () => {
+                    const saveBuffer = await sharp(Buffer.from(image.base64, 'base64'))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+                    if (saveToDiskCheck()) {
+                        fs.writeFileSync(
+                            `./Outputs/txt2img_${randomID.get()}_${index + 1}.${config.Advanced.Save_Images_As}`,
+                            saveBuffer
+                        );
+                    }
+                    if (config.Advanced.Save_Images_As == config.Advanced.Send_Images_As) {
+                        imageBuffer.push(saveBuffer);
+                    } else {
+                        const sendBuffer = await sharp(saveBuffer)[config.Advanced.Send_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+                        imageBuffer.push(sendBuffer);
+                    }
+                })();
+                promises.push(promise);
+            }
+        })
+        .catch((error) => {
+            console.error(error);
+            throw new Error(`Error: ${error}`);
+        });
+    await Promise.allSettled(promises);
+    return imageBuffer;
+}
+
+// Function to generate an image via Stable Diffusion 3.0
+async function generateImageViaSD3(userInput, negativePrompt, trueDimensions, imageModel, numberOfImages, randomID) {
+    const apiUrl = `https://api.stability.ai/v2beta/stable-image/generate/sd3`;
+    let imageBuffer = [];
+    if (negativePrompt == "") negativePrompt = "bad quality, low resolution, low quality, blurry, lowres, jpeg artifacts, warped image, worst quality";
+
+    // Log the parameters to the console
+    console.log('\n---Generating image via StabilityAI APIv2---');
+    console.log('-User Input:', userInput);
+    console.log('-Negative Prompt:', negativePrompt);
+    console.log('-True Dimensions:', trueDimensions);
+    console.log('-Image Model:', imageModel);
+    console.log('-Number of Images:', numberOfImages);
+
+    for (let i = 0; i < numberOfImages; i++) {
+        const formData = new FormData();
+        formData.append("model", imageModel);
+        formData.append("prompt", userInput);
+        formData.append("output_format", "png");
+        formData.append("mode", "text-to-image");
+        formData.append("aspect_ratio", trueDimensions);
+        if (imageModel == "sd3") { // Only append to supported models
+            formData.append("negative_prompt", negativePrompt);
+        }
+
+        const response = await axios.post(
+            apiUrl,
+            formData,
+            {
+                responseType: "arraybuffer",
+                headers: {
+                    Authorization: StabilityAIKey,
+                    Accept: "image/*",
+                    ...formData.getHeaders(),
+                },
+            }
+        );
+        // Process and save the generated image
+        if (response.status === 200) {
+            const saveBuffer = await sharp(Buffer.from(response.data))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+            if (saveToDiskCheck()) {
+                const filePath = `./Outputs/txt2img_${randomID.get()}_${i + 1}.${config.Advanced.Save_Images_As}`;
+                await fs.promises.writeFile(filePath, saveBuffer);
+            }
+            if (config.Advanced.Save_Images_As == config.Advanced.Send_Images_As) {
+                imageBuffer.push(saveBuffer);
+            } else {
+                const sendBuffer = await sharp(Buffer.from(response.data))[config.Advanced.Send_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+                imageBuffer.push(sendBuffer);
+            }
+        } else {
+            throw new Error(`${response.status}: ${response.data.toString()}`);
+        }
+    }
+    return imageBuffer;
 }
 
 //Documentation
@@ -593,7 +559,7 @@ async function generateHashedUserId(userId) {
 
 // Gets the API balance from StabilityAI
 async function getBalance() {
-    const url = `${apiHost}/v1/user/balance`
+    const url = `https://api.stability.ai/v1/user/balance`
     const response = await fetch(url, {
         method: 'GET',
         headers: {
