@@ -1,3 +1,8 @@
+// File: image_functions.js
+// Author: TryFailTryAgain
+// Copyright (c) 2024. All rights reserved. For use in Open-Source projects this
+// may be freely copied or excerpted with credit to the author.
+
 /* Getting required modules */
 const fs = require('fs');
 const ini = require('ini');
