@@ -5,15 +5,18 @@
 
 /* Getting required modules */
 const fs = require('fs');
-const ini = require('ini');
-const Filter = require('bad-words');
-const filter = new Filter({ placeHolder: '*' }); // Modify the character used to replace bad words
-const Crypto = require('crypto');
 const OpenAI = require('openai');
 const sharp = require('sharp');
 const FormData = require('form-data');
 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 const axios = require('axios');
+
+// Import the helper functions
+const helperFunctions = require('./helperFunctions.js');
+// Add all the helper functions to the global scope
+for (let key in helperFunctions) {
+    global[key] = helperFunctions[key];
+}
 /* End getting required modules */
 
 /* Some global variables for ease of access */
@@ -515,51 +518,16 @@ async function adaptImagePrompt(currentPrompt, chatRefinementRequest, userID) {
     return refinedPrompt;
 }
 
-
-// Function to check if the profanity filter is enabled or disabled from the settings.ini file
-async function filterCheck() {
-    const inputFilter = config.Advanced.Filter_Naughty_Words.toLowerCase();
-
-    // Alert console if the profanity filter is enabled or disabled
-    if (inputFilter === 'true') {
+// Check if the user wants to save the images to disk or not
+async function saveToDiskCheck() {
+    const saveImages = config.Advanced.Save_Images.toLowerCase();
+    if (saveImages === 'true') {
         return true;
-    } else if (inputFilter === 'false') {
+    } else if (saveImages === 'false') {
         return false;
     } else {
-        throw new Error("The Filter_Naughty_Words setting in settings.ini is not set to true or false. Please set it to true or false");
+        throw new Error("The Save_Images setting in settings.ini is not set to true or false. Please set it to true or false");
     }
-}
-
-// Function to filter the prompt for profanity and other words provided in node_modules/bad-words/lib/lang.json file
-// TODO: Add a section to add custom words to the filter in the settings config that will be imported here
-async function filterString(input) {
-    try {
-        console.log("--Filtering string--\n");
-        input = (filter.clean(input)).toString();
-        // Removes the asterisks that the filter replaces the bad words with. Somehow this is not built into the filter to my knowledge
-        input = input.replace(/\*/g, '');
-        console.log("-The string after filtering is:\n" + input + "\n");
-    } catch (error) {
-        console.error(error);
-        // Throws another error to be caught when the function is called
-        throw new Error(`Error: ${error}`);
-    }
-    return input;
-}
-
-// Function to generate a hashed user ID to send to openai instead of the original user ID
-// This is to protect the users privacy and to help incase of policy violations with OpenAI
-// TODO: Add a setting to disable this in the settings config file
-async function generateHashedUserId(userId) {
-    // Get the salt from settings.ini
-    const salt = config.Advanced.Salt;
-    // Generate the hash
-    const hash = Crypto.pbkdf2Sync(userId, salt, 1000, 64, 'sha512');
-
-    // Convert the hash to a hexadecimal string
-    const hashedUserId = hash.toString('hex');
-    //console.log("Hashed user ID: " + hashedUserId);
-    return hashedUserId;
 }
 
 // Gets the API balance from StabilityAI
@@ -580,6 +548,7 @@ async function getBalance() {
     return balance.credits;
 }
 
+
 // Function to inject a message into what is being sent if they are low on API credits
 async function lowBalanceMessage() {
     const balance = await getBalance();
@@ -597,15 +566,13 @@ async function lowBalanceMessage() {
     return message;
 }
 
-// Check if the user wants to save the images to disk or not
-async function saveToDiskCheck() {
-    const saveImages = config.Advanced.Save_Images.toLowerCase();
-    if (saveImages === 'true') {
-        return true;
-    } else if (saveImages === 'false') {
-        return false;
-    } else {
-        throw new Error("The Save_Images setting in settings.ini is not set to true or false. Please set it to true or false");
+// Function to validate API keys //
+function validateApiKeys(apiKeys) {
+    if (apiKeys.Keys.StabilityAI == "") {
+        throw new Error("The API key is not set. Please set it in the file");
+    }
+    if (apiKeys.Keys.OpenAI == "") {
+        throw new Error("The API key is not set. Please set it in the file");
     }
 }
 
@@ -624,45 +591,6 @@ const randomID = {
     }
 };
 
-// Function to validate API keys //
-function validateApiKeys(apiKeys) {
-    if (apiKeys.Keys.StabilityAI == "") {
-        throw new Error("The API key is not set. Please set it in the file");
-    }
-    if (apiKeys.Keys.OpenAI == "") {
-        throw new Error("The API key is not set. Please set it in the file");
-    }
-}
-
-// Helper function to read and parse ini files
-function getIniFileContent(filePath) {
-    return ini.parse(fs.readFileSync(filePath, 'utf-8'));
-}
-
-// Deletes the original reply and follows up with a new ephemeral one. Mostly used for error handling
-async function deleteAndFollowUpEphemeral(interaction, message) {
-    await interaction.deleteReply();
-    await interaction.followUp({
-        content: message,
-        ephemeral: true
-    });
-}
-
-// Follows up with a new ephemeral message. Mostly used for error handling
-async function followUpEphemeral(interaction, message) {
-    await interaction.followUp({
-        content: message,
-        ephemeral: true
-    });
-}
-
-// Follows up with a new message. Mostly used for error handling
-async function followUp(interaction, message) {
-    await interaction.followUp({
-        content: message,
-        ephemeral: true
-    });
-}
 
 // Generates a random seed for image generation
 async function genSeed() {
@@ -790,18 +718,11 @@ module.exports = {
     upscaleImage,
     promptOptimizer,
     adaptImagePrompt,
-    filterCheck,
-    filterString,
-    generateHashedUserId,
     getBalance,
     lowBalanceMessage,
     saveToDiskCheck,
     randomID,
     validateApiKeys,
-    getIniFileContent,
-    deleteAndFollowUpEphemeral,
-    followUpEphemeral,
-    followUp,
     genSeed,
     getDimensions,
     generateImageToImage,

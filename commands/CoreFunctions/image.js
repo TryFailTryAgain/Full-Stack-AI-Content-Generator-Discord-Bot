@@ -9,6 +9,12 @@ const { SlashCommandBuilder, AttachmentBuilder, ActionRowBuilder, ButtonBuilder,
 ////* Getting required local files *////
 const imageFunctions = require('../../functions/image_functions.js');
 const ImageChatModal = require('../../components/imageChatModal.js');
+// Import the helper functions
+const helperFunctions = require('../../functions/helperFunctions.js');
+// Add all the helper functions to the global scope
+for (let key in helperFunctions) {
+    global[key] = helperFunctions[key];
+}
 // Add all the image functions to the global scope
 for (let key in imageFunctions) {
     global[key] = imageFunctions[key];
