@@ -28,7 +28,8 @@ module.exports = {
     ////* End of the command framing *////
 
     ////* Start of the command functional execution *////
-    async execute(interaction, client) {
+    async execute(interaction) {
+        console.log("---Chat command executing---");
         // Get the user's chat message from the interaction
         const userMessage = interaction.options.getString('input');
 
@@ -36,11 +37,24 @@ module.exports = {
         await interaction.deferReply();
 
         // Send the chat message to the chatbot service and get the response
-        const chatResponse = await sendChatMessage(userMessage);
+        const chatResponse = "a demo message to save api credits" //await sendChatMessage(userMessage);
 
         // Send the chatbot's response back to the user
-        await interaction.editReply(chatResponse);
+        console.log("-Sending chat response to Discord-");
+        const sentMessage = await interaction.editReply(chatResponse);
+
+        // if it is in the same channel as the bot's message, and if the author is the same as the command user
+        const collectorFilter = m => m.author.id === interaction.user.id && m.channelId === interaction.channelId;
+        const collector = interaction.channel.createMessageCollector({ filter: collectorFilter, time: 15000 });
+
+        collector.on('collect', m => {
+            console.log(`Collected ${m.content}`);
+        });
+
+        // Event listener for when the collector ends
+        collector.on('end', collected => {
+            console.log(`Collected ${collected.size} items`);
+        });
     }
     ////* End of the command functional execution *////
 };
-    

@@ -32,18 +32,23 @@ for (const folder of commandFolders) {
 
 /* Events loading */
 // Gets all the event files in the events directory
+console.log('Loading event files...');
 const eventsPath = path.join(__dirname, 'events');
 const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.js'));
 
 for (const file of eventFiles) {
 	const filePath = path.join(eventsPath, file);
+	console.log(`Loading event module from file: ${file}`);
 	const event = require(filePath);
 	if (event.once) {
+		console.log(`Registering one-time event handler for: ${event.name}`);
 		client.once(event.name, (...args) => event.execute(...args));
 	} else {
+		console.log(`Registering event handler for: ${event.name}`);
 		client.on(event.name, (...args) => event.execute(...args));
 	}
 }
+console.log('Event files loaded successfully.');
 /* End Events Loading */
 
 // Login to Discord with bot client's token
