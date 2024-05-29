@@ -44,14 +44,13 @@ module.exports = {
         const sentMessage = await interaction.editReply(chatResponse);
 
         // if it is in the same channel as the bot's message, and if the author is the same as the command user
-        const collectorFilter = m => m.author.id === interaction.user.id && m.channelId === interaction.channelId;
-        const collector = interaction.channel.createMessageCollector({ filter: collectorFilter, time: 15000 });
+        const filter = m => m.author.id === interaction.user.id;
+        const collector = interaction.channel.createMessageCollector({ filter, time: 15_000 });
 
         collector.on('collect', m => {
             console.log(`Collected ${m.content}`);
         });
 
-        // Event listener for when the collector ends
         collector.on('end', collected => {
             console.log(`Collected ${collected.size} items`);
         });

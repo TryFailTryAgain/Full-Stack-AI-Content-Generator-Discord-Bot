@@ -1,13 +1,23 @@
 // Require the necessary discord.js classes
 const fs = require('node:fs');
 const path = require('node:path');
-const { Client, Collection, Events, GatewayIntentBits } = require('discord.js');
+const { Client, Collection, GatewayIntentBits, Partials } = require('discord.js');
 // File containing the bot token
 // !!!!!DO NOT COMMIT THIS FILE!!!!!
 const { token } = require('./config.json');
 
 // Create a new client instance
-const client = new Client({ intents: [GatewayIntentBits.Guilds], timeout: 120_000 });
+const client = new Client({ 
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.GuildMembers
+    ], 
+    partials: [Partials.Channel],
+    timeout: 120_000 
+});
 
 // Gets all the command files in the commands directory
 // ALL COMMANDS MUST BE WITHIN A SUBFOLDER OF THE COMMANDS FOLDER
@@ -52,5 +62,6 @@ console.log('Event files loaded successfully.');
 /* End Events Loading */
 
 // Login to Discord with bot client's token
+console.log('Logging in...');
 client.login(token);
 
