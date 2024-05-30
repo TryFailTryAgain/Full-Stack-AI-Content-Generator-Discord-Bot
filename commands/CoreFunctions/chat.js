@@ -8,6 +8,7 @@ const { SlashCommandBuilder } = require('discord.js');
 
 /* Getting required local files */
 const { sendChatMessage } = require('../../functions/chatFunctions.js');
+const { filterString, filterCheck } = require('../../functions/helperFunctions.js');
 
 // Add all the image functions to the global scope
 // Removed the addition of chat functions to the global scope, as we will use them directly
@@ -66,15 +67,23 @@ data: new SlashCommandBuilder()
         collector.on('collect', async m => {
             // Format the user's message with their display name
             const userMessage = `Message from:${m.author.displayName}. Message: ${m.content}`;
-            console.log(`-Collected message:\n ${userMessage}`);
-            // Add the user's message to the conversation history
-            conversationHistory.push({ "role": "user", "content": userMessage });
+            //console.log(`-Collected message:\n ${userMessage}`);
+
+            // Check if filtering is enabled
+            const isFilterEnabled = await filterCheck();
+            const filteredUserMessage = isFilterEnabled ? await filterString(userMessage) : userMessage;
+
+            // Add the filtered user's message to the conversation history
+            conversationHistory.push({ "role": "user", "content": filteredUserMessage });
 
             // Send the conversation history to the chatbot service and get the response
             const chatResponse = await sendChatMessage(conversationHistory);
 
-            // Add the bot's response to the conversation history
-            conversationHistory.push({ role: "assistant", content: chatResponse });
+            // Filter the bot's response if filtering is enabled
+            const filteredChatResponse = isFilterEnabled ? await filterString(chatResponse) : chatResponse;
+
+            // Add the filtered bot's response to the conversation history
+            conversationHistory.push({ role: "assistant", content: filteredChatResponse });
             // Reply to the user's message with the chatbot's response
             m.reply(chatResponse);
         });
