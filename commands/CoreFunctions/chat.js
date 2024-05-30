@@ -3,67 +3,100 @@
 // Copyright (c) 2024. All rights reserved. For use in Open-Source projects this
 // may be freely copied or excerpted with credit to the author.
 
-////* Getting required modules *////
-const { SlashCommandBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
+/* Getting required modules */
+const { SlashCommandBuilder } = require('discord.js');
 
-////* Getting required local files *////
+/* Getting required local files */
 const { sendChatMessage } = require('../../functions/chatFunctions.js');
 
 // Add all the image functions to the global scope
 // Removed the addition of chat functions to the global scope, as we will use them directly
 
-////* End getting required modules and local files *////
+/* End getting required modules and local files */
 
 module.exports = {
-    ////* Frame of the command *////
+    /* Frame of the command */
     cooldown: 1,
-    data: new SlashCommandBuilder()
-        .setName('chat')
-        .setDescription('ChatGPT style chatbot')
-        .addStringOption(option =>
-            option.setName('input')
-                .setDescription('Your chat message')
-                .setRequired(true)
-        ),
-    ////* End of the command framing *////
+data: new SlashCommandBuilder()
+    .setName('chat')
+    .setDescription('ChatGPT style chatbot')
+    .addIntegerOption(option => 
+        option.setName('time')
+        .setDescription('Chat duration')
+        .addChoices(
+            { name: '5 minutes', value: 5 },
+            { name: '10 minutes', value: 10 },
+            { name: '15 minutes', value: 15 },
+            { name: 'End chat session now', value: 0 }
+        )
+        .setRequired(true)
+    ),
+    /* End of the command framing */
 
-    ////* Start of the command functional execution *////
+    /* Start of the command functional execution */
     async execute(interaction) {
+        // Log the execution of the chat command
         console.log("---Chat command executing---");
-        //Build the conversation history array to store all incoming and outgoing messages
-        const conversationHistory = [];
-        // Store the user's message to the conversation history
-        conversationHistory.push({"role": "user", "content": interaction.options.getString('input')});
-        // Defer the reply to give us time to process the chat message
-        await interaction.deferReply();
 
-    
-        // Send the chat message to the chatbot service and get the response
-        const chatResponse = await sendChatMessage(conversationHistory);
+        // Check if the chatbot is currently active in this channel
+        const chatActive = interaction.client.chatStates.get(interaction.channel.id) || false;
+        // Toggle the chatbot's active state for this channel
+        interaction.client.chatStates.set(interaction.channel.id, !chatActive);
 
-        conversationHistory.push({ role: "assistant", "content": chatResponse });
+        console.log(`-Chatbot is now ${!chatActive ? 'active' : 'inactive'} in channel ${interaction.channel.id}`);
+        // Inform the user about the new state of the chatbot
+        if (!chatActive) {
+            await interaction.reply("Chatbot is now active for ALL users in this channel for the next " + interaction.options.getInteger('time') + " minutes");
+        } else {
+            await interaction.reply("Chatbot is now inactive in this channel");
+        }
 
-        // Send the chatbot's response back to the user
-        console.log("-Sending chat response to Discord-");
-        const sentMessage = await interaction.editReply(chatResponse);
+        // If the chatbot is now inactive, stop further execution on this thread
+        if (chatActive) return;
 
-        // if it is in the same channel as the bot's message, and if the author is the same as the command user
-        const filter = m => m.author.id === interaction.user.id;
-        const collector = interaction.channel.createMessageCollector({ filter, time: 60_000 });
+        // Initialize conversation history
+        let conversationHistory = [];
 
-        collector.on('collect', m => {
-            console.log(`Received message from user: ${m.content}`);
-            conversationHistory.push({ role: "user", "content": m.content });
-            sendChatMessage(conversationHistory).then(chatResponse => {
-                conversationHistory.push({ role: "assistant", "content": chatResponse });
-                m.reply(chatResponse);
-            });
-            
+        // Create a message collector to listen for messages in the channel
+        // The filter ensures that only messages from non-bot users in active channels are collected
+        const filter = m => !m.author.bot && interaction.client.chatStates.get(m.channel.id);
+        const collector = interaction.channel.createMessageCollector({ filter, time: interaction.options.getInteger('time') * 60000});
+
+        // Handle collected messages
+        collector.on('collect', async m => {
+            // Format the user's message with their display name
+            const userMessage = `Message from:${m.author.displayName}. Message: ${m.content}`;
+            console.log(`-Collected message:\n ${userMessage}`);
+            // Add the user's message to the conversation history
+            conversationHistory.push({ "role": "user", "content": userMessage });
+
+            // Send the conversation history to the chatbot service and get the response
+            const chatResponse = await sendChatMessage(conversationHistory);
+
+            // Add the bot's response to the conversation history
+            conversationHistory.push({ role: "assistant", content: chatResponse });
+            // Reply to the user's message with the chatbot's response
+            m.reply(chatResponse);
         });
 
-        collector.on('end', collected => {
-            console.log(`Collected ${collected.size} items`);
+        collector.on('end', async collected => {
+            await interaction.reply("Chatbot time has expired. Chatbot is now inactive in this channel. Please use /chat to activate again");
+        });
+
+        // Create a message collector to listen for the bot's "inactive" message
+        // This is so we can end the activation /chat call's collector, not just filter it out
+        const chatInactiveFilter = m => m.author.bot && m.content === "Chatbot is now inactive in this channel";
+        const chatInactiveCollector = interaction.channel.createMessageCollector({ filter: chatInactiveFilter, time: interaction.options.getInteger('time') * 60000});
+
+        // End the execution of the command if the specific message is collected
+        chatInactiveCollector.on('collect', m => {
+            console.log("--Bot's 'inactive' message collected. Ending command execution on original bot activation thread--");
+            // Stop the message collectors
+            collector.stop();
+            chatInactiveCollector.stop();
+            // Clear the conversation history
+            conversationHistory = [];
         });
     }
-    ////* End of the command functional execution *////
+    /* End of the command functional execution */
 };
