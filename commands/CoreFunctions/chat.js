@@ -30,14 +30,18 @@ module.exports = {
     ////* Start of the command functional execution *////
     async execute(interaction) {
         console.log("---Chat command executing---");
-        // Get the user's chat message from the interaction
-        const userMessage = interaction.options.getString('input');
-
+        //Build the conversation history array to store all incoming and outgoing messages
+        const conversationHistory = [];
+        // Store the user's message to the conversation history
+        conversationHistory.push({"role": "user", "content": interaction.options.getString('input')});
         // Defer the reply to give us time to process the chat message
         await interaction.deferReply();
 
+    
         // Send the chat message to the chatbot service and get the response
-        const chatResponse = "a demo message to save api credits" //await sendChatMessage(userMessage);
+        const chatResponse = await sendChatMessage(conversationHistory);
+
+        conversationHistory.push({ role: "assistant", "content": chatResponse });
 
         // Send the chatbot's response back to the user
         console.log("-Sending chat response to Discord-");
@@ -45,10 +49,16 @@ module.exports = {
 
         // if it is in the same channel as the bot's message, and if the author is the same as the command user
         const filter = m => m.author.id === interaction.user.id;
-        const collector = interaction.channel.createMessageCollector({ filter, time: 15_000 });
+        const collector = interaction.channel.createMessageCollector({ filter, time: 60_000 });
 
         collector.on('collect', m => {
-            console.log(`Collected ${m.content}`);
+            console.log(`Received message from user: ${m.content}`);
+            conversationHistory.push({ role: "user", "content": m.content });
+            sendChatMessage(conversationHistory).then(chatResponse => {
+                conversationHistory.push({ role: "assistant", "content": chatResponse });
+                m.reply(chatResponse);
+            });
+            
         });
 
         collector.on('end', collected => {

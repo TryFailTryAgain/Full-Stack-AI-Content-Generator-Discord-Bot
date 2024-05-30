@@ -35,24 +35,20 @@ const prompt_Model = config.Image_command_settings.Prompt_Model;
 
 
 // Sends a chat message to a chatbot service and returns the response
-async function sendChatMessage(message) {
-
+async function sendChatMessage(conversationHistory) {
     try {
-        console.log('Sending message to OpenAI:', message);
+        console.log('Sending conversation history to OpenAI:', conversationHistory);
         const response = await openaiChat.chat.completions.create({
             messages: [
                 {
                     role: "system",
                     content: "You are a helpful assistant."
                 },
-                {
-                    role: "user",
-                    content: message
-                }
+                ...conversationHistory
             ],
             model: prompt_Model,
         });
-        
+
         if (response.choices && response.choices.length > 0) {
             console.log('Received chat response:', response.choices[0].message.content);
             return response.choices[0].message.content;
