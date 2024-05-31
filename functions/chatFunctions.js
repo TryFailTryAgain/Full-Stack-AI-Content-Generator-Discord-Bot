@@ -34,23 +34,32 @@ openaiChat.baseURL = openaiChatBaseURL;
 const openaiImage = new OpenAI({ apiKey: apiKeys.Keys.OpenAIImage });
 openaiImage.baseURL = openaiImageBaseURL;
 
-// Get the model to be used for generating responses
-const prompt_Model = config.Image_command_settings.Prompt_Model;
-
+// Get the model and parameters to pass to the LLM API
+function getChatSettings() {
+    return {
+        chatModel: config.Chat_Command_Settings.Chat_Model,
+        chatTemperature: parseFloat(config.Chat_Command_Settings.Chat_Temperature),
+        maxTokens: parseInt(config.Chat_Command_Settings.Max_Tokens),
+        systemMessage: config.Chat_Command_Settings.System_Message
+    };
+}
 
 // Sends a chat message to a chatbot service and returns the response
 async function sendChatMessage(conversationHistory) {
     try {
         // Send the conversation history to OpenAI and get the response
-        const response = await openaiChat.chat.completions.create({ // Create a chat completion
+        const chatSettings = getChatSettings();
+        const response = await openaiChat.chat.completions.create({
             messages: [
-                { // TODO: Make this System Prompt configurable in the settings file
+                {
                     role: "system",
-                    content: "You are a helpful assistant."
+                    content: chatSettings.systemMessage
                 },
                 ...conversationHistory
             ],
-            model: prompt_Model,
+            model: chatSettings.chatModel,
+            temperature: chatSettings.chatTemperature,
+            max_tokens: chatSettings.maxTokens
         });
 
         // Check if a valid response was received
@@ -69,4 +78,5 @@ async function sendChatMessage(conversationHistory) {
 /* Export the sendChatMessage function */
 module.exports = { // Export the function for use in other files
     sendChatMessage,
+    getChatSettings
 };

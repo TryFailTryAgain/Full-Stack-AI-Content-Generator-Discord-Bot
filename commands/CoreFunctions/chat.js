@@ -9,10 +9,6 @@ const { SlashCommandBuilder } = require('discord.js');
 /* Getting required local files */
 const { sendChatMessage } = require('../../functions/chatFunctions.js');
 const { filterString, filterCheck } = require('../../functions/helperFunctions.js');
-
-// Add all the image functions to the global scope
-// Removed the addition of chat functions to the global scope, as we will use them directly
-
 /* End getting required modules and local files */
 
 module.exports = {
@@ -88,8 +84,9 @@ data: new SlashCommandBuilder()
             m.reply(chatResponse);
         });
 
+        // When the collector ends, inform the user that the chatbot is now inactive
         collector.on('end', async collected => {
-            await interaction.reply("Chatbot time has expired. Chatbot is now inactive in this channel. Please use /chat to activate again");
+            await interaction.followUp("Chatbot time has expired. Chatbot is now inactive in this channel. Please use /chat to activate again");
         });
 
         // Create a message collector to listen for the bot's "inactive" message
