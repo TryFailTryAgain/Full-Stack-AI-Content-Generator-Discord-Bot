@@ -23,7 +23,7 @@ module.exports = {
                 .addChoices(
                     { name: '5 minutes', value: 5 },
                     { name: '10 minutes', value: 10 },
-                    { name: '15 minutes', value: 15 },
+                    { name: '15 minutes', value: 14.8 },
                     { name: 'End chat session now', value: 0 }
                 )
                 .setRequired(true)
