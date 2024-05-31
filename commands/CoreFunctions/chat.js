@@ -61,9 +61,9 @@ data: new SlashCommandBuilder()
 
         // Handle collected messages
         collector.on('collect', async m => {
-            // Format the user's message with their display name
-            const userMessage = `Message from:${m.author.displayName}. Message: ${m.content}`;
-            //console.log(`-Collected message:\n ${userMessage}`);
+            const member = m.guild.members.cache.get(m.author.id);
+            const displayName = member.nickname ? member.nickname : member.user.username;
+            const userMessage = `Message from: ${displayName}. Message: ${m.content}`;
 
             // Check if filtering is enabled
             const isFilterEnabled = await filterCheck();
