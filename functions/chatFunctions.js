@@ -25,7 +25,7 @@ if (!apiKeys.Keys.OpenAIChat || !apiKeys.Keys.OpenAIImage) {
     throw new Error("OpenAIChat API key is not set in api_keys.ini");
 }
 // Get base URL for the API
-const openaiChatBaseURL = config.Advanced.OpenAI_Chat_Base_URL; 
+const openaiChatBaseURL = config.Advanced.OpenAI_Chat_Base_URL;
 const openaiImageBaseURL = config.Advanced.OpenAI_Image_Base_URL;
 
 // Set the API keys for OpenAI and the base URL
@@ -70,7 +70,7 @@ async function sendChatMessage(conversationHistory) {
             throw new Error('No response from OpenAI.');
         }
     } catch (error) {
-        console.error('Error sending chat message:', error); 
+        console.error('Error sending chat message:', error);
         throw error;
     }
 }
