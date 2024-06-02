@@ -87,6 +87,8 @@ module.exports = {
         // When the collector ends, inform the user that the chatbot is now inactive
         collector.on('end', async collected => {
             await interaction.followUp("Chatbot time has expired. Chatbot is now inactive in this channel. Please use /chat to activate again");
+            // Set the bot's active state to false when the collector ends
+            interaction.client.chatStates.set(interaction.channel.id, false);
         });
 
 
