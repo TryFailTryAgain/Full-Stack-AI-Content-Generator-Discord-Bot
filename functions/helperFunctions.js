@@ -43,6 +43,19 @@ async function filterString(input) {
     return input;
 }
 
+async function filterCheckThenFilterString(input) {
+    try {
+        const isFilterEnabled = await filterCheck();
+        if (isFilterEnabled) {
+            input = await filterString(input);
+        }
+    } catch (error) {
+        console.error(error);
+        throw new Error(`Error: ${error}`);
+    }
+    return input;
+}
+
 // Function to generate a hashed user ID to send to openai instead of the original user ID
 // This is to protect the users privacy and to help incase of policy violations with OpenAI
 // TODO: Add a setting to disable this in the settings config file
@@ -80,20 +93,12 @@ async function followUpEphemeral(interaction, message) {
     });
 }
 
-// Follows up with a new message. Mostly used for error handling
-async function followUp(interaction, message) {
-    await interaction.followUp({
-        content: message,
-        ephemeral: true
-    });
-}
-
 module.exports = {
     filterCheck,
     filterString,
+    filterCheckThenFilterString,
     generateHashedUserId,
     getIniFileContent,
     deleteAndFollowUpEphemeral,
     followUpEphemeral,
-    followUp
 };
