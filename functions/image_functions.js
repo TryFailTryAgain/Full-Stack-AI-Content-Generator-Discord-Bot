@@ -46,10 +46,8 @@ openaiImage.baseURL = openaiImageBaseURL;
 
 // This is a profanity filter that will prevent the bot from passing profanity and other rude words to the generator
 // It can be enabled or disabled in the config.json file
-const profanityFilterEnabled = filterCheck();
-const saveToDiskEnabled = saveToDiskCheck();
-console.log(`Profanity filter -- /image == ${profanityFilterEnabled ? 'ENABLED' : 'DISABLED'}`);
-console.log(`Save images to disk -- /image == ${saveToDiskEnabled ? 'ENABLED' : 'DISABLED'}`);
+console.log(`Profanity filter -- /Chat == ${filterCheck() ? 'ENABLED' : 'DISABLED'}`);
+console.log(`Save images to disk -- /image == ${saveToDiskCheck() ? 'ENABLED' : 'DISABLED'}`);
 /* End of Acquiring values */
 
 
@@ -459,9 +457,7 @@ async function promptOptimizer(userInput, userID) {
     }
     let optimized_Prompt = response.choices[0].message.content;
     // Filter the returned optimized prompt. Just in case the AI is unhappy today
-    if (await filterCheck()) {
-        optimized_Prompt = await filterString(optimized_Prompt);
-    }
+    optimized_Prompt = await filterCheckThenFilterString(optimized_Prompt);
     return optimized_Prompt;
 }
 
@@ -476,7 +472,7 @@ async function adaptImagePrompt(currentPrompt, chatRefinementRequest, userID) {
     const userMessage = config.Image_command_settings.ChatRefinementUserMessage;
 
     // Filter the input request
-    if (await filterCheck()) chatRefinementRequest = await filterString(chatRefinementRequest);
+    chatRefinementRequest = await filterCheckThenFilterString(chatRefinementRequest);
     // Generate a hashed user ID to send to openai instead of the original user ID
     const hashedUserID = await generateHashedUserId(userID);
     let response = null;
@@ -509,8 +505,7 @@ async function adaptImagePrompt(currentPrompt, chatRefinementRequest, userID) {
         throw new Error(`Error: ${error}`);
     }
     // Filter the response if the profanity filter is enabled just in case the ai is having a bad day
-    refinedPrompt = response.choices[0].message.content;
-    if (await filterCheck()) refinedPrompt = await filterString(response.choices[0].message.content);
+    refinedPrompt = await filterCheckThenFilterString(response.choices[0].message.content);
 
     console.log("Original prompt: \n" + currentPrompt + "\n" +
         "Refined prompt:  \n" + refinedPrompt + "\n");

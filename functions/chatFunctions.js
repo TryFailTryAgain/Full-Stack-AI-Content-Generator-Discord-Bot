@@ -34,6 +34,10 @@ openaiChat.baseURL = openaiChatBaseURL;
 const openaiImage = new OpenAI({ apiKey: apiKeys.Keys.OpenAIImage });
 openaiImage.baseURL = openaiImageBaseURL;
 
+// This is a profanity filter that will prevent the bot from passing profanity and other rude words
+// It can be enabled or disabled in the config.json file
+console.log(`Profanity filter -- /Chat == ${filterCheck() ? 'ENABLED' : 'DISABLED'}`);
+
 // Get the model and parameters to pass to the LLM API
 function getChatSettings() {
     return {

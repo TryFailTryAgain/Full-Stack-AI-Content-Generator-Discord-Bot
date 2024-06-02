@@ -8,7 +8,7 @@ const { SlashCommandBuilder } = require('discord.js');
 
 /* Getting required local files */
 const { sendChatMessage } = require('../../functions/chatFunctions.js');
-const { filterCheckThenFilterString, followUp } = require('../../functions/helperFunctions.js');
+const { filterCheckThenFilterString } = require('../../functions/helperFunctions.js');
 /* End getting required modules and local files */
 
 module.exports = {

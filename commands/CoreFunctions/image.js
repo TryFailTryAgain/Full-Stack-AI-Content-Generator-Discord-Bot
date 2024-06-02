@@ -127,15 +127,8 @@ module.exports = {
         let width = parseInt(dimensions.split('x')[0]);
 
         // Prompt filtering
-        try {
-            if (await filterCheck()) {
-                originalUserInput = await filterString(originalUserInput);
-            }
-        } catch (error) {
-            console.error(error);
-            deleteAndFollowUpEphemeral(interaction, "An error occurred while filtering the prompt. Please try again");
-            return;
-        }
+        originalUserInput = await filterCheckThenFilterString(originalUserInput);
+
 
         // Create a dynamic variable for the user input so it can be optimized or changed later but we retain the original.
         let userInput = originalUserInput;
@@ -494,13 +487,12 @@ module.exports = {
 
                 // Wait for the modal submit interaction and get the values from the modal
                 let { toBeReplaced, replaceWith, negativePrompt: searchReplaceNegativePrompt } = await ImageChatModal.waitForModalSubmit(i);
-
+                // Sets default value if the negative prompt is empty
+                searchReplaceNegativePrompt = searchReplaceNegativePrompt || 'low resolution, bad quality, warped image, jpeg artifacts, worst quality, lowres, blurry';
                 // Filter all the new user inputs if the filter is enabled
-                if (await filterCheck()) {
-                    toBeReplaced = await filterString(toBeReplaced);
-                    replaceWith = await filterString(replaceWith);
-                    searchReplaceNegativePrompt = await filterString(searchReplaceNegativePrompt);
-                }
+                toBeReplaced = await filterCheckThenFilterString(toBeReplaced);
+                replaceWith = await filterCheckThenFilterString(replaceWith);
+                searchReplaceNegativePrompt = await filterCheckThenFilterString(searchReplaceNegativePrompt);
                 // Regenerate the image with the chat refinement, then update the reply
                 imageBuffer = await searchAndReplace(imageBuffer[0], toBeReplaced, replaceWith, searchReplaceNegativePrompt, interaction.user.id);
 
