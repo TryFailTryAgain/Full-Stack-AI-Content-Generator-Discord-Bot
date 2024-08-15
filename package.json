@@ -4,7 +4,7 @@
   "description": "https://github.com/TryFailTryAgain/Full-Stack-AI-Meme-Generator-Discord-Bot",
   "main": "index.js",
   "dependencies": {
-    "axios": "^1.6.8",
+    "axios": "^1.7.4",
     "bad-words": "^3.0.4",
     "busboy": "^1.6.0",
     "discord-api-types": "^0.37.50",
@@ -22,6 +22,7 @@
     "peek-readable": "^5.0.0",
     "readable-stream": "^3.6.2",
     "readable-web-to-node-stream": "^3.0.2",
+    "replicate": "^0.31.1",
     "safe-buffer": "^5.2.1",
     "sharp": "^0.33.3",
     "streamsearch": "^1.1.0",
