@@ -6,11 +6,9 @@ const Crypto = require('crypto');
 
 // File paths
 const SETTINGS_FILE_PATH = './settings.ini';
-const API_KEYS_FILE_PATH = './api_keys.ini';
 
 /* Acquiring Global values */
 const config = getIniFileContent(SETTINGS_FILE_PATH);
-const apiKeys = getIniFileContent(API_KEYS_FILE_PATH);
 
 // Function to check if the profanity filter is enabled or disabled from the settings.ini file
 async function filterCheck() {
@@ -56,14 +54,13 @@ async function filterCheckThenFilterString(input) {
     return input;
 }
 
-// Function to generate a hashed user ID to send to openai instead of the original user ID
-// This is to protect the users privacy and to help incase of policy violations with OpenAI
-// TODO: Add a setting to disable this in the settings config file
 async function generateHashedUserId(userId) {
-    // Get the salt from settings.ini
-    const salt = config.Advanced.Salt;
     // Generate the hash
-    const hash = Crypto.pbkdf2Sync(userId, salt, 1000, 64, 'sha512');
+    salt = config.Advanced.Salt;
+    const userIdStr = typeof userId === 'string' ? userId : String(userId);
+    const saltStr = typeof salt === 'string' ? salt : String(salt);
+    
+    const hash = Crypto.pbkdf2Sync(userIdStr, saltStr, 1000, 64, 'sha512');
 
     // Convert the hash to a hexadecimal string
     const hashedUserId = hash.toString('hex');
@@ -93,6 +90,10 @@ async function followUpEphemeral(interaction, message) {
     });
 }
 
+function generateRandomHex() {
+    return Math.floor(Math.random() * 0xFFFFFFFF).toString(16).padStart(8, '0');
+}
+
 module.exports = {
     filterCheck,
     filterString,
@@ -101,4 +102,5 @@ module.exports = {
     getIniFileContent,
     deleteAndFollowUpEphemeral,
     followUpEphemeral,
+    generateRandomHex,
 };

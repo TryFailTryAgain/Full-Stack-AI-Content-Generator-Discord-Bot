@@ -8,24 +8,22 @@ const fs = require('fs');
 const OpenAI = require('openai');
 const sharp = require('sharp');
 const FormData = require('form-data');
-const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 const axios = require('axios');
+const Replicate = require('replicate');
 
 // Import the helper functions
 const helperFunctions = require('./helperFunctions.js');
+const image = require('../commands/CoreFunctions/image.js');
 // Add all the helper functions to the global scope
 for (let key in helperFunctions) {
     global[key] = helperFunctions[key];
 }
 /* End getting required modules */
 
-/* Some global variables for ease of access */
-
 // File paths
 const SETTINGS_FILE_PATH = './settings.ini';
 const API_KEYS_FILE_PATH = './api_keys.ini';
 
-/* Acquiring Global values */
 const config = getIniFileContent(SETTINGS_FILE_PATH);
 const apiKeys = getIniFileContent(API_KEYS_FILE_PATH);
 
@@ -48,39 +46,242 @@ openaiImage.baseURL = openaiImageBaseURL;
 // It can be enabled or disabled in the config.json file
 console.log(`Profanity filter -- /Chat == ${filterCheck() ? 'ENABLED' : 'DISABLED'}`);
 console.log(`Save images to disk -- /image == ${saveToDiskCheck() ? 'ENABLED' : 'DISABLED'}`);
-/* End of Acquiring values */
 
 
 /* Functions */
-async function generateImage(userInput, negativePrompt, imageModel, dimensions, numberOfImages, cfg, steps, seed, userID) {
+async function generateImage({ userInput, negativePrompt, imageModel, dimensions, numberOfImages, cfg, steps, seed, userID }) {
     // Creates an empty array to store the image buffers in
     let imageBuffer = [];
-    // Generates a randomID integer to be used in the file name for identification
-    randomID.generate();
     // Get the correct dimensions for the image
     const trueDimensions = getDimensions(imageModel, dimensions);
     // Generate a hashed user ID to send to openai instead of the original user ID
     const hashedUserID = await generateHashedUserId(userID);
 
-    if (imageModel == "dall-e-3") {
-        imageBuffer = await generateImageViaDallE3(userInput, trueDimensions, numberOfImages, hashedUserID, randomID);
-    } else if (imageModel == "stable-diffusion-v1-6" || imageModel == "stable-diffusion-xl-1024-v1-0") {
-        imageBuffer = await generateImageViaStabilityAIv1(userInput, negativePrompt, trueDimensions, imageModel, numberOfImages, cfg, steps, seed, hashedUserID, randomID);
-    } else if (imageModel == "sd3" || imageModel == "sd3-turbo") {
-        imageBuffer = await generateImageViaSD3(userInput, negativePrompt, trueDimensions, imageModel, numberOfImages, randomID);
+    switch (imageModel) {
+        case "dall-e-3":
+            imageBuffer = await generateImageViaDallE3({
+                userInput: userInput,
+                trueDimensions: trueDimensions,
+                numberOfImages: numberOfImages,
+                userID: hashedUserID
+            });
+            break;
+        case "stable-diffusion-v1-6":
+        case "stable-diffusion-xl-1024-v1-0":
+            imageBuffer = await generateImageViaStabilityAIv1({
+                userInput: userInput,
+                negativePrompt: negativePrompt,
+                trueDimensions: trueDimensions,
+                imageModel: imageModel,
+                numberOfImages: numberOfImages,
+                cfg: cfg,
+                steps: steps,
+                seed: seed,
+                userID: hashedUserID
+            });
+            break;
+        case "sd3-large":
+        case "sd3-large-turbo":
+            imageBuffer = await generateImageViaSD3({
+                userInput: userInput,
+                negativePrompt: negativePrompt,
+                trueDimensions: trueDimensions,
+                imageModel: imageModel,
+                numberOfImages: numberOfImages
+            });
+            break;
+        case imageModel.match(/^lucataco\/juggernaut-xl-v9:/)?.input:
+            imageBuffer = await generateImageViaReplicate_Juggernaut({
+                userInput: userInput,
+                negativePrompt: negativePrompt,
+                imageModel: imageModel,
+                trueDimensions: trueDimensions,
+                numberOfImages: numberOfImages,
+                cfg: cfg,
+                steps: steps,
+                seed: seed,
+                disable_safety_checker: !Boolean(config.Advanced.Image_Safety_Check)
+            });
+            break;
+        case "black-forest-labs/flux-schnell":
+            imageBuffer = await generateImageViaReplicate_FluxSchnell({
+                userInput: userInput,
+                imageModel: imageModel,
+                numberOfImages: numberOfImages,
+                trueDimensions: "1:1",
+                output_format: "webp",
+                output_quality: 100,
+                disable_safety_checker: !Boolean(config.Advanced.Image_Safety_Check),
+            });
+            break;
+        default:
+            throw new Error(`Unsupported image model for text to image generation: ${imageModel}`);
     }
 
     return imageBuffer;
 }
 
+async function generateImageToImage({ image, userInput, negativePrompt, Image2Image_Model, strength, seed, userID }) {
+    let imageBuffer = [];
+
+    switch (Image2Image_Model) {
+        case 'sd3-large':
+            imageBuffer = await generateImageToImageViaStabilityAI(image, userInput, negativePrompt, strength, seed, userID);
+            break;
+        case 'black-forest-labs/flux-dev':
+            imageBuffer = await generateImageToImageViaReplicate_FluxDev({
+                image: image,
+                userInput: userInput,
+                strength: strength,
+                disable_safety_checker: !Boolean(config.Advanced.Image_Safety_Check),
+            });
+            break;
+        default:
+            throw new Error(`Unsupported image model for image-to-image generation: ${Image2Image_Model}`);
+    }
+
+    return imageBuffer;
+}
+
+async function generateImageToImageViaReplicate_FluxDev({ image, userInput, strength, disable_safety_checker }) {
+    let imageBuffer = [];
+    const replicate = new Replicate({
+        auth: apiKeys.Keys.Replicate,
+    });
+
+    console.log('\n---Generating image-2-Image via Replicate Flux Dev---');
+    console.log('-User Input:', userInput);
+    console.log('-Strength:', strength);
+
+    try {
+        const input = {
+            prompt: userInput,
+            image: image,
+            strength: strength,
+            num_outputs: 1,
+            disable_safety_checker: disable_safety_checker
+        };
+
+        const prediction = await replicate.run('black-forest-labs/flux-dev', { input });
+
+        for (let i = 0; i < prediction.length; i++) {
+            const imageUrl = prediction[i];
+            const response = await fetch(imageUrl);
+            const arrayBuffer = await response.arrayBuffer();
+            const saveBuffer = await sharp(Buffer.from(arrayBuffer))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+
+            const processedBuffer = await checkThenSave_ReturnSendImage(saveBuffer);
+            imageBuffer.push(processedBuffer);
+        }
+        return imageBuffer;
+
+    } catch (error) {
+        console.error('Error generating image with Replicate Flux Dev:', error);
+        throw error;
+    }
+}
+
+async function generateImageViaReplicate_FluxSchnell({ userInput, imageModel, numberOfImages, trueDimensions, output_format, output_quality, disable_safety_checker }) {
+    const replicate = new Replicate({
+        auth: apiKeys.Keys.Replicate,
+    });
+    console.log('\n---Generating image via Replicate Flux Schnell---');
+    console.log('-Prompt:', userInput);
+    console.log('-Number of Images:', numberOfImages);
+    console.log('-Aspect Ratio:', trueDimensions);
+    console.log('-Output Format:', output_format);
+    console.log('-Output Quality:', output_quality);
+
+    const input = {
+        prompt: userInput,
+        num_outputs: numberOfImages,
+        aspect_ratio: trueDimensions,
+        output_format: output_format,
+        output_quality: output_quality,
+        disable_safety_checker: disable_safety_checker
+    };
+
+    try {
+        const prediction = await replicate.run(imageModel, { input });
+
+        let imageBuffer = [];
+        for (let i = 0; i < prediction.length; i++) {
+            const imageUrl = prediction[i];
+            const response = await fetch(imageUrl);
+            const arrayBuffer = await response.arrayBuffer();
+            const saveBuffer = await sharp(Buffer.from(arrayBuffer))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+
+            const processedBuffer = await checkThenSave_ReturnSendImage(saveBuffer);
+            imageBuffer.push(processedBuffer);
+        }
+        return imageBuffer;
+
+    } catch (error) {
+        console.error('Error generating image with Replicate:', error);
+        throw error;
+    }
+}
+
+// Function to generate an image via Replicate Juggernaut XL v9
+async function generateImageViaReplicate_Juggernaut({ userInput, negativePrompt, imageModel, trueDimensions, numberOfImages, steps, seed, disable_safety_checker }) {
+    const replicate = new Replicate({
+        auth: apiKeys.Keys.Replicate,
+    });
+
+    console.log('\n---Generating image via Replicate Juggernaut XL v9---');
+    console.log('-User Input:', userInput);
+    console.log('-Negative Prompt:', negativePrompt);
+    console.log('-Image Model:', imageModel);
+    console.log('-True Dimensions:', trueDimensions);
+    console.log('-Number of Images:', numberOfImages);
+
+    try {
+        const prediction = await replicate.run(
+            imageModel,
+            {
+                input: {
+                    prompt: userInput,
+                    negative_prompt: negativePrompt !== undefined ? negativePrompt : '',
+                    steps: steps,
+                    width: parseInt(trueDimensions.split('x')[0]),
+                    height: parseInt(trueDimensions.split('x')[1]),
+                    scheduler: "DPM++SDE",
+                    num_outputs: parseInt(numberOfImages),
+                    guidance_scale: 2,
+                    apply_watermark: true,
+                    num_inference_steps: 5,
+                    seed: parseInt(seed),
+                    disable_safety_checker: disable_safety_checker
+                }
+            }
+        );
+        //console.log('Replicate prediction output:\n', prediction);
+        let imageBuffer = [];
+        for (let i = 0; i < prediction.length; i++) {
+            const imageUrl = prediction[i];
+            const response = await fetch(imageUrl);
+            const arrayBuffer = await response.arrayBuffer();
+            const saveBuffer = await sharp(Buffer.from(arrayBuffer))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+
+            const processedBuffer = await checkThenSave_ReturnSendImage(saveBuffer);
+            imageBuffer.push(processedBuffer);
+        }
+        return imageBuffer;
+
+    } catch (error) {
+        console.error('Error generating image with Replicate:', error);
+        throw error;
+    }
+}
+
 // Function to generate an image via Dall-E-3
-async function generateImageViaDallE3(userInput, trueDimensions, numberOfImages, hashedUserID, randomID) {
+async function generateImageViaDallE3({ userInput, trueDimensions, numberOfImages, userID }) {
     // Log the parameters to the console
     console.log('\n---Generating image via Dall-E-3---');
     console.log('-User Input:', userInput);
     console.log('-True Dimensions:', trueDimensions);
     console.log('-Number of Images:', numberOfImages);
-    console.log('-Hashed User ID:', hashedUserID);
+    console.log('-Hashed User ID:', userID);
 
     let imageBuffer = [];
 
@@ -93,34 +294,24 @@ async function generateImageViaDallE3(userInput, trueDimensions, numberOfImages,
             quality: "standard", // "standard" or "hd" TODO: Add this to command options
             style: "natural", // "natural" or "vivid  TODO: Add this to command options
             response_format: "b64_json",
-            user: toString(hashedUserID),
+            user: toString(userID),
         });
         // Process and save the generated image
         const saveBuffer = await sharp((Buffer.from(response.data[0].b64_json, 'base64')))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
-        if (saveToDiskCheck()) {
-            fs.writeFileSync(
-                `./Outputs/txt2img_${randomID.get()}_${i + 1}.${config.Advanced.Save_Images_As}`,
-                saveBuffer
-            );
-        }
-        if (config.Advanced.Save_Images_As == config.Advanced.Send_Images_As) {
-            imageBuffer.push(saveBuffer);
-        } else {
-            const sendBuffer = await sharp(saveBuffer)[config.Advanced.Send_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
-            imageBuffer.push(sendBuffer);
-        }
+        const processedBuffer = await checkThenSave_ReturnSendImage(saveBuffer);
+        imageBuffer.push(processedBuffer);
     }
     console.log("RETURNING");
     return imageBuffer;
 }
 
 // Function to generate an image via StabilityAI v1
-async function generateImageViaStabilityAIv1(userInput, negativePrompt, trueDimensions, imageModel, numberOfImages, cfg, steps, seed, hashedUserID, randomID) {
+async function generateImageViaStabilityAIv1({ userInput, negativePrompt, trueDimensions, imageModel, numberOfImages, cfg, steps, seed, userID }) {
     const apiHost = 'https://api.stability.ai';
     let imageBuffer = [];
     let promises = [];
     const [width, height] = trueDimensions.split('x').map(Number);
-    if (negativePrompt == "") negativePrompt = "bad quality, low resolution, low quality, blurry, lowres, jpeg artifacts, warped image, worst quality";
+    if (negativePrompt == null) negativePrompt = "bad quality, low resolution, low quality, blurry, lowres, jpeg artifacts, warped image, worst quality";
 
     // Log the parameters to the console
     console.log('\n---Generating image via StabilityAI API v1---');
@@ -132,7 +323,7 @@ async function generateImageViaStabilityAIv1(userInput, negativePrompt, trueDime
     console.log('-CFG Scale:', cfg);
     console.log('-Steps:', steps);
     console.log('-Seed:', seed);
-    console.log('-Hashed User ID:', hashedUserID);
+    console.log('-Hashed User ID:', userID);
 
     await fetch(`${apiHost}/v1/generation/${imageModel}/text-to-image`, {
         method: 'POST',
@@ -140,7 +331,7 @@ async function generateImageViaStabilityAIv1(userInput, negativePrompt, trueDime
             'Content-Type': 'application/json',
             Accept: 'application/json',
             Authorization: StabilityAIKey,
-            'Stability-Client-ID': hashedUserID,
+            'Stability-Client-ID': userID,
         },
         body: JSON.stringify({
             text_prompts: [
@@ -169,18 +360,8 @@ async function generateImageViaStabilityAIv1(userInput, negativePrompt, trueDime
             for (const [index, image] of responseJSON.artifacts.entries()) {
                 const promise = (async () => {
                     const saveBuffer = await sharp(Buffer.from(image.base64, 'base64'))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
-                    if (saveToDiskCheck()) {
-                        fs.writeFileSync(
-                            `./Outputs/txt2img_${randomID.get()}_${index + 1}.${config.Advanced.Save_Images_As}`,
-                            saveBuffer
-                        );
-                    }
-                    if (config.Advanced.Save_Images_As == config.Advanced.Send_Images_As) {
-                        imageBuffer.push(saveBuffer);
-                    } else {
-                        const sendBuffer = await sharp(saveBuffer)[config.Advanced.Send_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
-                        imageBuffer.push(sendBuffer);
-                    }
+                    const processedBuffer = await checkThenSave_ReturnSendImage(saveBuffer);
+                    imageBuffer.push(processedBuffer);
                 })();
                 promises.push(promise);
             }
@@ -194,8 +375,8 @@ async function generateImageViaStabilityAIv1(userInput, negativePrompt, trueDime
 }
 
 // Function to generate an image via Stable Diffusion 3.0
-async function generateImageViaSD3(userInput, negativePrompt, trueDimensions, imageModel, numberOfImages, randomID) {
-    const apiUrl = `https://api.stability.ai/v2beta/stable-image/generate/sd3`;
+async function generateImageViaSD3({ userInput, negativePrompt, trueDimensions, imageModel, numberOfImages }) {
+    const apiUrl = 'https://api.stability.ai/v2beta/stable-image/generate/sd3';
     let imageBuffer = [];
     if (negativePrompt == "") negativePrompt = "bad quality, low resolution, low quality, blurry, lowres, jpeg artifacts, warped image, worst quality";
 
@@ -208,113 +389,97 @@ async function generateImageViaSD3(userInput, negativePrompt, trueDimensions, im
     console.log('-Number of Images:', numberOfImages);
 
     for (let i = 0; i < numberOfImages; i++) {
-        const formData = new FormData();
-        formData.append("model", imageModel);
-        formData.append("prompt", userInput);
-        formData.append("output_format", "png");
-        formData.append("mode", "text-to-image");
-        formData.append("aspect_ratio", trueDimensions);
-        if (imageModel == "sd3") { // Only append to supported models
-            formData.append("negative_prompt", negativePrompt);
+        const payload = {
+            model: imageModel,
+            prompt: userInput,
+            output_format: "png",
+            mode: "text-to-image",
+            aspect_ratio: trueDimensions,
+        };
+
+        if (imageModel == "sd3-large") { // Only append to supported models
+            payload.negative_prompt = negativePrompt;
         }
 
-        const response = await axios.post(
+        const response = await axios.postForm(
             apiUrl,
-            formData,
+            axios.toFormData(payload, new FormData()),
             {
+                validateStatus: undefined,
                 responseType: "arraybuffer",
                 headers: {
                     Authorization: StabilityAIKey,
                     Accept: "image/*",
-                    ...formData.getHeaders(),
                 },
             }
         );
-        // Process and save the generated image
+
         if (response.status === 200) {
             const saveBuffer = await sharp(Buffer.from(response.data))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
-            if (saveToDiskCheck()) {
-                const filePath = `./Outputs/txt2img_${randomID.get()}_${i + 1}.${config.Advanced.Save_Images_As}`;
-                await fs.promises.writeFile(filePath, saveBuffer);
-            }
-            if (config.Advanced.Save_Images_As == config.Advanced.Send_Images_As) {
-                imageBuffer.push(saveBuffer);
-            } else {
-                const sendBuffer = await sharp(Buffer.from(response.data))[config.Advanced.Send_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
-                imageBuffer.push(sendBuffer);
-            }
+            const processedBuffer = await checkThenSave_ReturnSendImage(saveBuffer);
+            imageBuffer.push(processedBuffer);
         } else {
+            console.error('Error Response:', response.data.toString());
             throw new Error(`${response.status}: ${response.data.toString()}`);
         }
     }
     return imageBuffer;
 }
 
-//Documentation
-// https://platform.stability.ai/docs/api-reference#tag/v1generation/operation/imageToImage
-async function generateImageToImage(imageFile, userInput, negativePrompt, strength, seed, userID) {
+// NOT currently functional
+async function generateImageToImageViaStabilityAI(image, userInput, negativePrompt, strength, seed, userID) {
+    const apiUrl = 'https://api.stability.ai/v2beta/stable-image/generate/sd3';
     let imageBuffer = [];
+    if (negativePrompt == "") negativePrompt = "bad quality, low resolution, low quality, blurry, lowres, jpeg artifacts, warped image, worst quality";
 
-    console.log("---Generating image via Stable Diffusion 3.0---");
-    console.log("\n\n--Sending generation request to StabilityAI with the following parameters: \n" +
-        "-Prompt: " + userInput + "\n" +
-        "-Negative Prompt: " + negativePrompt + "\n" +
-        "-Strength: " + strength + "\n" +
-        "-Seed: " + seed + "\n" +
-        "-Image Model: " + "SD3" + "\n\n"); // TODO: Add the image model to use the same as the text-to-image
+    // Log the parameters to the console
+    console.log('\n---Generating image-to-image via StabilityAI APIv2---');
+    console.log('-User Input:', userInput);
+    console.log('-Negative Prompt:', negativePrompt);
+    console.log('-Strength:', strength);
+    console.log('-Seed:', seed);
+    console.log('-User ID:', userID);
 
-    const apiUrl = `https://api.stability.ai/v2beta/stable-image/generate/sd3`;
+    const payload = {
+        model: 'sd3-large',
+        prompt: userInput,
+        negative_prompt: negativePrompt,
+        image: image.toString('base64'),
+        output_format: "png",
+        mode: "image-to-image",
+        strength: strength,
+        seed: seed,
+    };
 
-    const formData = new FormData();
-    formData.append('prompt', userInput);
-    formData.append('image', imageFile, { filename: 'image.' + config.Advanced.Send_Images_As, contentType: 'image/' + config.Advanced.Send_Images_As });
-    formData.append('output_format', 'png');
-    formData.append('mode', 'image-to-image');
-    formData.append('negative_prompt', negativePrompt);
-    formData.append('strength', strength);
-    formData.append('seed', seed);
-    formData.append('model', 'sd3');
 
-    const response = await axios.post(
+    const response = await axios.postForm(
         apiUrl,
-        formData,
+        axios.toFormData(payload, new FormData()),
         {
             validateStatus: undefined,
             responseType: "arraybuffer",
             headers: {
                 Authorization: StabilityAIKey,
                 Accept: "image/*",
-                ...formData.getHeaders(),
             },
-        },
+        }
     );
 
     if (response.status === 200) {
         const saveBuffer = await sharp(Buffer.from(response.data))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
-        // Saves images to disk if the setting is enabled, otherwise only send them to Discord
-        if (saveToDiskCheck()) {
-            const filePath = `./Outputs/txt2img_${randomID.get()}_.${config.Advanced.Save_Images_As}`;
-            await fs.promises.writeFile(filePath, saveBuffer);
-            console.log(`Saved Image: ${filePath}`);
-        }
-
-        // Convert the image to the specified format for sending
-        // If Save and Send are the same then don't convert it again
-        if (config.Advanced.Save_Images_As == config.Advanced.Send_Images_As) {
-            imageBuffer.push(saveBuffer);
-        } else {
-            const sendBuffer = await sharp(Buffer.from(response.data))[config.Advanced.Send_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
-            imageBuffer.push(sendBuffer);
-        }
+        const processedBuffer = await checkThenSave_ReturnSendImage(saveBuffer);
+        imageBuffer.push(processedBuffer);
     } else {
+        console.error('Error Response:', response.data.toString());
         throw new Error(`${response.status}: ${response.data.toString()}`);
     }
+
     return imageBuffer;
 }
 
 // Documentation:
 // https://platform.stability.ai/docs/api-reference#tag/Edit/paths/~1v2beta~1stable-image~1edit~1search-and-replace/post
-async function searchAndReplace(imageFile, search, replace, negative_prompt, userID) {
+async function searchAndReplace(image, search, replace, negative_prompt, userID) {
     let imageBuffer = [];
     console.log("---Searching and replacing image via Stable Diffusion 3.0---");
     console.log("--Sending generation request to StabilityAI with the following parameters: \n" +
@@ -327,90 +492,80 @@ async function searchAndReplace(imageFile, search, replace, negative_prompt, use
     const formData = new FormData();
     formData.append('prompt', replace);
     formData.append('search_prompt', search);
-    formData.append('image', imageFile, { filename: 'image.' + config.Advanced.Send_Images_As, contentType: 'image/' + config.Advanced.Send_Images_As });
+    formData.append('image', image, { filename: 'image.' + config.Advanced.Send_Images_As, contentType: 'image/' + config.Advanced.Send_Images_As });
     formData.append('output_format', 'png');
     formData.append('negative_prompt', negative_prompt);
 
-    const response = await axios.post(
-        apiUrl,
-        formData,
-        {
-            validateStatus: undefined,
-            responseType: "arraybuffer",
-            headers: {
-                Authorization: StabilityAIKey,
-                Accept: "image/*",
-                ...formData.getHeaders(),
-            },
+    const response = await fetch(apiUrl, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            Authorization: StabilityAIKey,
+            Accept: "image/*",
+            ...formData.getHeaders(),
         },
-    );
+    });
+    const arrayBuffer = await response.arrayBuffer();
 
-    if (response.status === 200) {
-        const saveBuffer = await sharp(Buffer.from(response.data))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+    if (response.ok) {
+        const saveBuffer = await sharp(Buffer.from(arrayBuffer))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
         // Saves images to disk if the setting is enabled, otherwise only send them to Discord
-        if (saveToDiskCheck()) {
-            const filePath = `./Outputs/txt2img_${randomID.get()}_.${config.Advanced.Save_Images_As}`;
-            await fs.promises.writeFile(filePath, saveBuffer);
-            console.log(`Saved Image: ${filePath}`);
-        }
-
-        // Convert the image to the specified format for sending
-        // If Save and Send are the same then don't convert it again
-        if (config.Advanced.Save_Images_As == config.Advanced.Send_Images_As) {
-            imageBuffer.push(saveBuffer);
-        } else {
-            const sendBuffer = await sharp(Buffer.from(response.data))[config.Advanced.Send_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
-            imageBuffer.push(sendBuffer);
-        }
+        const processedBuffer = await checkThenSave_ReturnSendImage(saveBuffer);
+        imageBuffer.push(processedBuffer);
     } else {
         throw new Error(`${response.status}: ${response.data.toString()}`);
     }
     return imageBuffer;
 }
 
-// Documentation:
-// https://platform.stability.ai/docs/api-reference#tag/v1generation/operation/upscaleImage
-async function upscaleImage(imageBuffer, width) {
-    const engineId = 'esrgan-v1-x2plus';
+async function upscaleImage(imageBuffer, upscaleModel) {
+    let upscaledImageBuffer = [];
 
-    // Grab the randomID of the previous generation to be used in the file name to correlate it with 
-    // the original image
-    console.log("Upscaled image will should have identical Random ID: " + randomID.get());
-
-    // Check if the width if over 2048px
-    if (width >= 2048) {
-        throw new Error("The image is too large to upscale. Please use an image that is smaller than 2048px tall or wide");
-    }
-    // Creates the form data that contains the image, width, file type, and authorization
-    const formData = new FormData();
-    formData.append('image', imageBuffer, { contentType: 'image/png' });
-    formData.append('width', imageBuffer.width * 2);
-
-    const response = await fetch(
-        `${apiHost}/v1/generation/${engineId}/image-to-image/upscale`,
-        {
-            method: 'POST',
-            headers: {
-                Accept: 'image/png',
-                Authorization: `${StabilityAIKey}`,
-            },
-            body: formData,
-        }
-    );
-    if (!response.ok) {
-        throw new Error(`Non-200 response: ${await response.text()}`);
+    switch (upscaleModel) {
+        case 'nightmareai/real-esrgan:f121d640bd286e1fdc67f9799164c1d5be36ff74576ee11c803ae5b665dd46aa':
+            upscaledImageBuffer = await upscaleImageViaReplicate_esrgan({ imageBuffer: imageBuffer });
+            break;
+        default:
+            throw new Error(`Unsupported upscale model: ${upscaleModel}`);
     }
 
-    const image = await response.arrayBuffer();
-    if (saveToDiskCheck()) {
-        fs.writeFileSync(
-            `./Outputs/upscaled_${randomID.get()}_0.png`,
-            Buffer.from(image)
-        );
-        console.log(`Saved Image: ./Outputs/upscaled_${randomID.get()}_0.png`);
+    return upscaledImageBuffer;
+}
+
+// Documentation
+// https://replicate.com/nightmareai/real-esrgan
+async function upscaleImageViaReplicate_esrgan({ imageBuffer, scaleFactor = 2, face_enhance = false }) {
+    const replicate = new Replicate({
+        auth: apiKeys.Keys.Replicate,
+    });
+
+    console.log('\n---Upscaling image via Replicate ESRGAN---');
+    console.log('Scaling factor: ', scaleFactor);
+    console.log('Face enhance: ', face_enhance);
+
+    try {
+        // Convert image buffer to a data URI
+        const imageDataUri = `data:image/png;base64,${(await sharp(imageBuffer).png().toBuffer()).toString('base64')}`;
+
+        const input = {
+            image: imageDataUri,
+            scale: scaleFactor, // Adjust up to 10x
+            face_enhance: face_enhance,
+        };
+
+        const prediction = await replicate.run('nightmareai/real-esrgan:f121d640bd286e1fdc67f9799164c1d5be36ff74576ee11c803ae5b665dd46aa', { input });
+        const imageUrl = prediction;
+        const response = await fetch(imageUrl);
+        const arrayBuffer = await response.arrayBuffer();
+        const saveBuffer = await sharp(Buffer.from(arrayBuffer))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+
+        const processedBuffer = await checkThenSave_ReturnSendImage(saveBuffer);
+        return processedBuffer;
+
+    } catch (error) {
+        console.error('Error upscaling image with Replicate ESRGAN:', error);
+        throw error;
     }
-    const newImageBuffer = [Buffer.from(image)];
-    return newImageBuffer;
 }
 
 // Function to optimize the prompt using openai's API
@@ -571,20 +726,6 @@ function validateApiKeys(apiKeys) {
     }
 }
 
-// Random ID generator for image file names
-const randomID = {
-    id: null,
-    generate: function () {
-        this.id = Math.floor(Math.random() * 1000000000);
-        console.log("The generated images will have Random ID: " + this.id);
-    },
-    get: function () {
-        if (this.id === null) {
-            this.generate();
-        }
-        return this.id;
-    }
-};
 
 
 // Generates a random seed for image generation
@@ -593,75 +734,58 @@ async function genSeed() {
 }
 
 function getDimensions(imageModel, dimensionType) {
-    let dimensions = '';
-
-    if (imageModel === 'stable-diffusion-xl-1024-v1-0') {
-        switch (dimensionType) {
-            case 'square':
-                dimensions = '1024x1024';
-                break;
-            case 'tall':
-                dimensions = '768x1344';
-                break;
-            case 'wide':
-                dimensions = '1344x768';
-                break;
-            default:
-                dimensions = 'Invalid dimension type';
-        }
-    } else if (imageModel === 'dall-e-3') {
-        switch (dimensionType) {
-            case 'square':
-                dimensions = '1024x1024';
-                break;
-            case 'tall':
-                dimensions = '1024x1792';
-                break;
-            case 'wide':
-                dimensions = '1792x1024';
-                break;
-            default:
-                dimensions = 'Invalid dimension type';
-        }
-    } else if (imageModel === 'stable-diffusion-v1-6') {
-        switch (dimensionType) {
-            case 'square':
-                dimensions = '512x512';
-                break;
-            case 'tall':
-                dimensions = '512x896';
-                break;
-            case 'wide':
-                dimensions = '896x512';
-                break;
-            default:
-                dimensions = 'Invalid dimension type';
-        }
-    } else if (imageModel === 'sd3' || imageModel === 'sd3-turbo') {
-        switch (dimensionType) {
-            case 'square':
-                dimensions = '1:1';
-                break;
-            case 'tall':
-                dimensions = '9:16';
-                break;
-            case 'wide':
-                dimensions = '16:9';
-                break;
-            default:
-                dimensions = 'Invalid dimension type';
-        }
-    } else {
-        dimensions = 'Invalid image model';
+    const dimensionsMap = {
+        'stable-diffusion-xl-1024-v1-0': {
+            'square': '1024x1024',
+            'tall': '768x1344',
+            'wide': '1344x768'
+        },
+        'dall-e-3': {
+            'square': '1024x1024',
+            'tall': '1024x1792',
+            'wide': '1792x1024'
+        },
+        'stable-diffusion-v1-6': {
+            'square': '512x512',
+            'tall': '512x896',
+            'wide': '896x512'
+        },
+        'sd3-large': {
+            'square': '1:1',
+            'tall': '9:16',
+            'wide': '16:9'
+        },
+        'sd3-large-turbo': {
+            'square': '1:1',
+            'tall': '9:16',
+            'wide': '16:9'
+        },
+        'lucataco/juggernaut-xl-v9:bea09cf018e513cef0841719559ea86d2299e05448633ac8fe270b5d5cd6777e': {
+            'square': '1024x1024',
+            'tall': '768x1344',
+            'wide': '1344x768'
+        },
+        'black-forest-labs/flux-schnell': {
+            'square': '1:1',
+            'tall': '9:16',
+            'wide': '16:9'
+        },
+        'black-forest-labs/flux-dev': {
+            'square': '1:1',
+            'tall': '9:16',
+            'wide': '16:9'
+        },
     }
 
-    return dimensions;
+
+    const defaultDimensions = '1024x1024';
+    return (dimensionsMap[imageModel] || {})[dimensionType] || 'Invalid dimension type';
 }
 
 // Automatically disable unneeded prompt optimization for more advanced image models
 function autoDisableUnneededPromptOptimization(imageModel) {
     // List of models for which the optimization should be disabled
-    const modelsToDisable = ['dall-e-3', 'sd3', 'sd3-turbo'];
+    const modelsToDisable = ['dall-e-3', 'sd3-large', 'sd3-large-turbo'];
 
     // Check if the current image model is in the list
     if (modelsToDisable.includes(imageModel)) {
@@ -677,10 +801,10 @@ async function checkSDBalance(imageModel, numberOfImages) {
         try {
             let pricePerImage = 0;
             switch (imageModel) {
-                case 'sd3':
+                case 'sd3-large':
                     pricePerImage = 6.5;
                     break;
-                case 'sd3-turbo':
+                case 'sd3-large-turbo':
                     pricePerImage = 4;
                     break;
                 case 'core':
@@ -692,7 +816,7 @@ async function checkSDBalance(imageModel, numberOfImages) {
                     break;
                 default:
                     pricePerImage = 0;
-                    break;
+                    return true;
             }
             if (await getBalance() < pricePerImage * numberOfImages) {
                 return false;
@@ -707,7 +831,21 @@ async function checkSDBalance(imageModel, numberOfImages) {
 
 /* End of functions */
 
-// Export the functions
+async function checkThenSave_ReturnSendImage(saveBuffer) {
+    if (saveToDiskCheck()) {
+        fs.writeFileSync(
+            `./Outputs/txt2img_${generateRandomHex()}.${config.Advanced.Save_Images_As}`,
+            saveBuffer
+        );
+    }
+    if (config.Advanced.Save_Images_As == config.Advanced.Send_Images_As) {
+        return saveBuffer;
+    } else {
+        const sendBuffer = await sharp(saveBuffer)[config.Advanced.Send_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+        return sendBuffer;
+    }
+}
+
 module.exports = {
     generateImage,
     upscaleImage,
@@ -716,7 +854,6 @@ module.exports = {
     getBalance,
     lowBalanceMessage,
     saveToDiskCheck,
-    randomID,
     validateApiKeys,
     genSeed,
     getDimensions,
