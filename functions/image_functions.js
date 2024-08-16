@@ -108,10 +108,24 @@ async function generateImage({ userInput, negativePrompt, imageModel, dimensions
                 userInput: userInput,
                 imageModel: imageModel,
                 numberOfImages: numberOfImages,
-                trueDimensions: "1:1",
+                trueDimensions: trueDimensions,
                 output_format: "webp",
                 output_quality: 100,
                 disable_safety_checker: !Boolean(config.Advanced.Image_Safety_Check),
+            });
+            break;
+        case "black-forest-labs/flux-dev":
+            imageBuffer = await generateImageViaReplicate_FluxDev({
+                userInput: userInput,
+                imageModel: imageModel,
+                numberOfImages: numberOfImages,
+                trueDimensions: trueDimensions,
+                output_format: "webp",
+                output_quality: 100,
+                disable_safety_checker: !Boolean(config.Advanced.Image_Safety_Check),
+                seed: seed,
+                //prompt_strength: null,
+                //num_inference_steps: null
             });
             break;
         default:
@@ -141,6 +155,54 @@ async function generateImageToImage({ image, userInput, negativePrompt, Image2Im
     }
 
     return imageBuffer;
+}
+
+async function generateImageViaReplicate_FluxDev({ userInput, imageModel, numberOfImages, trueDimensions, output_format, output_quality, disable_safety_checker, seed, prompt_strength, num_inference_steps }) {
+    const replicate = new Replicate({
+        auth: apiKeys.Keys.Replicate,
+    });
+
+    console.log('\n---Generating image via Replicate Flux Dev---');
+    console.log('-Prompt:', userInput);
+    console.log('-Number of Images:', numberOfImages);
+    console.log('-Aspect Ratio:', trueDimensions);
+    console.log('-Output Format:', output_format);
+    console.log('-Output Quality:', output_quality);
+    console.log('-Seed:', seed);
+    console.log('-Prompt Strength:', prompt_strength);
+    console.log('-Inference Steps:', num_inference_steps);
+
+    const input = {
+        prompt: userInput,
+        num_outputs: numberOfImages,
+        aspect_ratio: trueDimensions,
+        output_format: output_format,
+        output_quality: output_quality,
+        seed: seed,
+        //prompt_strength: prompt_strength,
+        //num_inference_steps: num_inference_steps,
+        disable_safety_checker: disable_safety_checker
+    };
+
+    try {
+        const prediction = await replicate.run(imageModel, { input });
+
+        let imageBuffer = [];
+        for (let i = 0; i < prediction.length; i++) {
+            const imageUrl = prediction[i];
+            const response = await fetch(imageUrl);
+            const arrayBuffer = await response.arrayBuffer();
+            const saveBuffer = await sharp(Buffer.from(arrayBuffer))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+
+            const processedBuffer = await checkThenSave_ReturnSendImage(saveBuffer);
+            imageBuffer.push(processedBuffer);
+        }
+        return imageBuffer;
+
+    } catch (error) {
+        console.error('Error generating image with Replicate Flux Dev:', error);
+        throw error;
+    }
 }
 
 async function generateImageToImageViaReplicate_FluxDev({ image, userInput, strength, disable_safety_checker }) {
