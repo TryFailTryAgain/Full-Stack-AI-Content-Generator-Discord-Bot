@@ -78,12 +78,17 @@ module.exports = {
             attachments.push(new AttachmentBuilder(imageBuffer[i]));
         }
 
-        const row = new ActionRowBuilder().addComponents(
+        const row1 = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId('regenerate')
                 .setLabel('Regenerate')
                 .setStyle(ButtonStyle.Primary)
                 .setEmoji('🔄'),
+            new ButtonBuilder()
+                .setCustomId('magic')
+                .setLabel('Magic')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('✨'),
             new ButtonBuilder()
                 .setCustomId('25similarity')
                 .setLabel('25% Similarity')
@@ -99,6 +104,9 @@ module.exports = {
                 .setLabel('Upscale')
                 .setStyle(ButtonStyle.Primary)
                 .setEmoji('🔍'),
+        );
+        // A second action row is needed as each has a 5 button limit
+        const row2 = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId('advanced')
                 .setLabel('Advanced Options')
@@ -109,15 +117,17 @@ module.exports = {
         const reply = await interaction.editReply({
             content: 'Consider funding your bot host to cover API fees❤️',
             files: attachments,
-            components: [row],
+            components: [row1, row2],
         });
 
-        const collectorFilter = i => (i.customId === 'regenerate' || i.customId === '25similarity' || i.customId === '50similarity' || i.customId === 'upscale' || i.customId === 'advanced') && i.user.id === interaction.user.id;
+        const collectorFilter = i => (i.customId === 'regenerate' || i.customId === '25similarity' || i.customId === '50similarity' || i.customId === 'upscale' || i.customId === 'advanced' || i.customId === 'magic') && i.user.id === interaction.user.id;
         const collector = reply.createMessageComponentCollector({ filter: collectorFilter, time: 870_000 });
 
         async function handleButtonInteraction(i, action) {
-            row.components.forEach(component => component.setDisabled(true));
-            await i.update({ components: [row] });
+            // Disable all buttons while processing
+            row1.components.forEach(component => component.setDisabled(true));
+            row2.components.forEach(component => component.setDisabled(true));
+            await i.update({ components: [row1, row2] });
 
             try {
                 await action();
@@ -132,12 +142,13 @@ module.exports = {
             if (attachments.length > 9) {
                 attachments = attachments.slice(0, 9);
             }
-
-            row.components.forEach(component => component.setDisabled(false));
+            // Enable the buttons again
+            row1.components.forEach(component => component.setDisabled(false));
+            row2.components.forEach(component => component.setDisabled(false));
             await i.editReply({
                 content: '⬅️New Images first \n➡️Original Images last \n',
                 files: attachments,
-                components: [row],
+                components: [row1, row2],
             });
         }
 
@@ -151,7 +162,8 @@ module.exports = {
                             imageModel: imageModel,
                             seed: seed,
                             userID: interaction.user.id,
-                            numberOfImages: 1
+                            numberOfImages: 1,
+                            dimensions: dimensions
                         });
                         attachments.unshift(new AttachmentBuilder(imageBuffer[0]));
                     });
@@ -196,6 +208,21 @@ module.exports = {
                     });
                     break;
 
+                case 'magic':
+                    await handleButtonInteraction(i, async () => {
+                        const optimizedPrompt = await promptOptimizer(userInput, interaction.user.id);
+                        imageBuffer = await generateImage({
+                            userInput: optimizedPrompt,
+                            imageModel: imageModel,
+                            seed: seed,
+                            userID: interaction.user.id,
+                            numberOfImages: 1,
+                            dimensions: dimensions
+                        });
+                        attachments.unshift(new AttachmentBuilder(imageBuffer[0]));
+                    });
+                    break;
+
                 case 'advanced':
                     row.components.forEach(component => component.setDisabled(false));
                     await i.editReply({
@@ -213,9 +240,11 @@ module.exports = {
         });
 
         collector.on('end', async () => {
-            row.components.forEach(component => component.setDisabled(true));
+            // Disable all buttons after the collector ends
+            row1.components.forEach(component => component.setDisabled(true));
+            row2.components.forEach(component => component.setDisabled(true));
             try {
-                await interaction.editReply({ components: [row] });
+                await interaction.editReply({ components: [row1, row2] });
             } catch (error) {
                 console.error(error);
                 followUpEphemeral(interaction, "An error occurred while disabling the buttons. Please try again or contact the bot host if this persists");

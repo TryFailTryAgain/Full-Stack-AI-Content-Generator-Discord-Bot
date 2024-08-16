@@ -775,10 +775,8 @@ function getDimensions(imageModel, dimensionType) {
             'tall': '9:16',
             'wide': '16:9'
         },
-    }
-
-
-    const defaultDimensions = '1024x1024';
+    };
+    
     return (dimensionsMap[imageModel] || {})[dimensionType] || 'Invalid dimension type';
 }
 
