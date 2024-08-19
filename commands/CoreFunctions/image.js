@@ -50,7 +50,6 @@ module.exports = {
         let originalUserInput = interaction.options.getString('prompt');
         let dimensions = interaction.options.getString('dimensions') || 'square';
         let imageModel = config.Image_command_settings.Image_Model;
-        let seed = await genSeed();
 
         // Filter the user input for profanity or other banned words if the setting is enabled
         // The filter is HIGHLY recommended to keep enabled and to add to it with additional words in
@@ -63,7 +62,6 @@ module.exports = {
                 userInput: userInput,
                 imageModel: imageModel,
                 dimensions: dimensions,
-                seed: seed,
                 userID: interaction.user.id,
                 numberOfImages: 1
             })
@@ -81,22 +79,22 @@ module.exports = {
         const row1 = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId('regenerate')
-                .setLabel('Regenerate')
+                .setLabel('Next Image')
                 .setStyle(ButtonStyle.Primary)
-                .setEmoji('🔄'),
+                .setEmoji('➕'),
             new ButtonBuilder()
                 .setCustomId('magic')
-                .setLabel('Magic')
+                .setLabel('Re-Imagine')
                 .setStyle(ButtonStyle.Primary)
                 .setEmoji('✨'),
             new ButtonBuilder()
                 .setCustomId('25similarity')
-                .setLabel('25% Similarity')
+                .setLabel('New 25% Similar')
                 .setStyle(ButtonStyle.Primary)
                 .setEmoji('🧬'),
             new ButtonBuilder()
                 .setCustomId('50similarity')
-                .setLabel('50% Similarity')
+                .setLabel('New 50% Similar')
                 .setStyle(ButtonStyle.Primary)
                 .setEmoji('🧬'),
             new ButtonBuilder()
@@ -156,11 +154,9 @@ module.exports = {
             switch (i.customId) {
                 case 'regenerate':
                     await handleButtonInteraction(i, async () => {
-                        seed = await genSeed();
                         imageBuffer = await generateImage({
                             userInput: userInput,
                             imageModel: imageModel,
-                            seed: seed,
                             userID: interaction.user.id,
                             numberOfImages: 1,
                             dimensions: dimensions
@@ -177,7 +173,6 @@ module.exports = {
                             negativePrompt: "",
                             Image2Image_Model: config.Image_command_settings.Image2Image_Model,
                             strength: 0.75,
-                            seed: seed,
                             userID: interaction.user.id
                         });
                         attachments.unshift(new AttachmentBuilder(imageBuffer[0]));
@@ -192,7 +187,6 @@ module.exports = {
                             negativePrompt: "",
                             Image2Image_Model: config.Image_command_settings.Image2Image_Model,
                             strength: 0.5,
-                            seed: seed,
                             userID: interaction.user.id
                         });
                         attachments.unshift(new AttachmentBuilder(imageBuffer[0]));
@@ -214,7 +208,6 @@ module.exports = {
                         imageBuffer = await generateImage({
                             userInput: optimizedPrompt,
                             imageModel: imageModel,
-                            seed: seed,
                             userID: interaction.user.id,
                             numberOfImages: 1,
                             dimensions: dimensions
