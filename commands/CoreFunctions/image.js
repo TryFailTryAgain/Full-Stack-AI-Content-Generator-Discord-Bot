@@ -217,7 +217,8 @@ module.exports = {
                     break;
 
                 case 'advanced':
-                    row.components.forEach(component => component.setDisabled(false));
+                    row1.components.forEach(component => component.setDisabled(false));
+                    row2.components.forEach(component => component.setDisabled(false));
                     await i.editReply({
                         content: 'Consider funding your bot host to cover API fees and keep new features coming❤️',
                         files: attachments,
@@ -233,7 +234,6 @@ module.exports = {
         });
 
         collector.on('end', async () => {
-            // Disable all buttons after the collector ends
             row1.components.forEach(component => component.setDisabled(true));
             row2.components.forEach(component => component.setDisabled(true));
             try {
