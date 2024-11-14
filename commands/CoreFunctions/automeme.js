@@ -20,7 +20,7 @@ module.exports = {
         try {
             await runPythonFileAndWait('./AIMemeGenerator.py', ['--nouserinput']);
             console.log('Python file finished running');
-            
+
             // Gets the path to the meme output file now that it has been generated
             try {
                 const outputPath = findFileName();
@@ -72,7 +72,7 @@ function runPythonFileAndWait(filename, args) {
     let error = '';
     console.log("The args passed are: " + args);
     // Spawns the script with the arguments passed to it
-    const pythonProcess = spawn('python', [filename, ...args]);
+    const pythonProcess = spawn('python3', [filename, ...args]);
     // Waits for the script to finish before continuing after resolve() is called in the close event
     return new Promise((resolve, reject) => {
         // Logs the python script outputs to the js console
