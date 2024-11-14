@@ -10,36 +10,24 @@ const { SlashCommandBuilder, ActionRowBuilder, StringSelectMenuBuilder, Events }
 const helperFunctions = require('../../functions/helperFunctions.js');
 const fs = require('fs');
 const ini = require('ini');
-
-/* Getting required local files */
-const SETTINGS_FILE_PATH = './settings.ini';
-const config = ini.parse(fs.readFileSync(SETTINGS_FILE_PATH, 'utf-8'));
-
+const { config } = require('../../functions/config.js');
+const { generateImage, generateImageToImage } = require('../../functions/image_functions.js');
+const { collectUserInput, collectImageAndPrompt, collectImage } = require('../../functions/helperFunctions.js');
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('image-advanced')
         .setDescription('Generates an image from your prompts using advanced options!'),
- 
+
     /* Start of the command functional execution */
     async execute(interaction) {
-    
-        /* TODO: Implement the advanced image generation command */
-        // UNTIL finished sends a message to the user that the command is not yet implemented
-        await interaction.reply({
-            content: 'Thank you for trying out this command, it soon will be a fantastic tool, but at the current time it\'s still under construction. \nPlease try again later and keep an eye out for bot updates!',
-            ephemeral: true
-        });
-        return;
-        /* End of temporary TODO block*/
-
 
         // Declare variables to hold selected values
         let selectedProvider = null;
         let selectedActionType = null;
         let selectedModel = null;
 
-        // Responds to the command to prevent discord timeout and this will display that the bot is thinking
+        // Respond to the command to prevent Discord timeout
         await interaction.deferReply();
 
         // Fetch available providers from settings.ini
@@ -48,33 +36,31 @@ module.exports = {
 
         providers.forEach(provider => {
             options[provider] = {};
-            const providerKey = provider.toLowerCase();
-            // Filter keys in the config to find model types for the current provider
-            const actions = Object.keys(config.Image_Advanced_command_settings).filter(key => {
-                console.log(`Processing key: ${key}`);
+            const providerKey = provider.trim();
 
-                // Convert the key to lowercase and check if it starts with the provider key
-                const isProviderAction = key.toLowerCase().startsWith(providerKey) && key.toLowerCase();
-                // Return true if the key is a model type, otherwise false
-                return isProviderAction;
-            });
+            // Filter keys that start with the provider's name
+            const actionKeys = Object.keys(config.Image_Advanced_command_settings).filter(key =>
+                key.startsWith(`${providerKey}_`)
+            );
 
-            console.log(`Provider: ${provider}, Actions: ${actions}`);
+            actionKeys.forEach(key => {
+                const actionType = key.replace(`${providerKey}_`, '').trim(); // e.g., 'text2img', 'img2img'
+                const models = config.Image_Advanced_command_settings[key]
+                    .split(',')
+                    .map(model => model.trim());
 
-            actions.forEach(type => {
-                const typeKey = type.replace(providerKey)
-                options[provider][typeKey] = config.Image_Advanced_command_settings[type].split(',').map(model => model.trim());
-                console.log(`Type: ${type}, Type Key: ${typeKey}, Models: ${options[provider][typeKey]}`);
+                // Remove duplicate models
+                const uniqueModels = [...new Set(models)];
+
+                options[provider][actionType] = uniqueModels;
             });
         });
-        console.log("models: ", options);
 
         // Create the initial selection menu for model providers
         const providerOptions = providers.map(provider => ({
-            label: provider < 25 ? provider : provider.substring(0, 25),
+            label: provider.length <= 25 ? provider : provider.substring(0, 25),
             value: provider
         }));
-        console.log("providerOptions: ", providerOptions);
 
         const providerSelectMenu = new StringSelectMenuBuilder()
             .setCustomId('select-provider')
@@ -89,86 +75,137 @@ module.exports = {
             components: [row]
         });
 
-        // Set up the interaction handler for the selection menu
-        const providerFilter = i => i.customId === 'select-provider' && i.user.id === interaction.user.id;
-        const providerCollector = interaction.channel.createMessageComponentCollector({ filter: providerFilter, time: 60000 });
+        // Set up the interaction handlers
+        const collector = interaction.channel.createMessageComponentCollector({ time: 180000 });
 
-        providerCollector.on('collect', async i => {
-            selectedProvider = i.values[0];
-            //await i.update({ content: `You selected: ${selectedProvider}`, components: [] });
+        collector.on('collect', async i => {
+            if (i.user.id !== interaction.user.id) return;
 
-            // Fetch available options for the selected provider and present the next selection menu
-            const actionOptions = Object.keys(options[selectedProvider] || {}).map(type => {
-                const label = `${type} models`.length > 25 ? `${type} models`.substring(0, 25) : `${type} models`;
-                const value = type;
-                console.log(`Model Option - Label: ${label}, Value: ${value}`);
-                return { label, value };
-            });
-            console.log("actionOptions: ", actionOptions);
+            if (i.customId === 'select-provider') {
+                selectedProvider = i.values[0];
 
-            const actionSelectMenu = new StringSelectMenuBuilder()
-                .setCustomId('select-action-type')
-                .setPlaceholder('Select an action')
-                .addOptions(actionOptions);
+                // Fetch available actions for the selected provider
+                const actionOptions = Object.keys(options[selectedProvider] || {}).map(type => ({
+                    label: `${type}`.substring(0, 25),
+                    value: type
+                }));
 
-            const actionRow = new ActionRowBuilder().addComponents(actionSelectMenu);
+                const actionSelectMenu = new StringSelectMenuBuilder()
+                    .setCustomId('select-action-type')
+                    .setPlaceholder('Select an action')
+                    .addOptions(actionOptions);
 
-            await i.update({
-                content: `You selected: ${selectedProvider}\nPlease select the action you wish to perform:`,
-                components: [actionRow]
-            });
+                const actionRow = new ActionRowBuilder().addComponents(actionSelectMenu);
+
+                await i.update({
+                    content: `You selected: ${selectedProvider}\nPlease select the action you wish to perform:`,
+                    components: [actionRow]
+                });
+            } else if (i.customId === 'select-action-type') {
+                selectedActionType = i.values[0];
+
+                // Fetch available models for the selected action type and provider
+                const availableModels = options[selectedProvider][selectedActionType];
+                const modelOptions = (availableModels || []).map(model => ({
+                    label: model.substring(0, 25),
+                    value: model
+                }));
+
+                const modelSelectMenu = new StringSelectMenuBuilder()
+                    .setCustomId('select-model')
+                    .setPlaceholder('Select a model')
+                    .addOptions(modelOptions);
+
+                const modelRow = new ActionRowBuilder().addComponents(modelSelectMenu);
+
+                await i.update({
+                    content: `Provider: ${selectedProvider}\nAction: ${selectedActionType}\nPlease select a model:`,
+                    components: [modelRow]
+                });
+            } else if (i.customId === 'select-model') {
+                selectedModel = i.values[0];
+
+                // Proceed to collect additional inputs based on action type
+                await i.update({
+                    content: `Provider: ${selectedProvider}\nAction: ${selectedActionType}\nModel: ${selectedModel}\n`,
+                    components: []
+                });
+
+                await handleActionType(interaction, selectedActionType, selectedModel);
+                collector.stop();
+            }
         });
 
-        // Set up the interaction handler for the model selection menu
-        const actionFilter = i => i.customId === 'select-action-type' && i.user.id === interaction.user.id;
-        const actionCollector = interaction.channel.createMessageComponentCollector({ filter: actionFilter, time: 60000 });
+        /* Function to handle different action types */
+        async function handleActionType(interaction, actionType, model) {
+            try {
+                if (actionType.toLowerCase() === 'text2img') {
+                    // Handle text-to-image generation
+                    const prompt = await collectUserInput(interaction, 'Please enter your prompt for image generation:');
+                    // Optional: Collect additional parameters like dimensions, number of images, etc.
 
-        actionCollector.on('collect', async i => {
-            selectedActionType = i.values[0];
-            //await i.update({ content: `You selected: ${selectedActionType} action`, components: [] });
+                    // Call generateImage from image_functions.js
+                    const images = await generateImage({
+                        userInput: prompt,
+                        negativePrompt: '', // Optionally collect negative prompt
+                        imageModel: model,
+                        dimensions: 'square', // Default or collect from user
+                        numberOfImages: 1, // Default or collect from user
+                        cfg: null, // Optional parameters
+                        steps: null,
+                        seed: null,
+                        userID: interaction.user.id
+                    });
 
-            // Fetch available models for the selected action type and provider
-            const availableModels = options[selectedProvider][selectedActionType];
-            const ModelOptions = (availableModels || []).map(model => ({
-                label: model.length > 25 ? model.substring(0, 25) : model,
-                value: model
-            }));
+                    // Send the generated images to the user
+                    await sendImages(interaction, images);
 
-            const modelSelectionMenu = new StringSelectMenuBuilder()
-                .setCustomId('select-model')
-                .setPlaceholder('Select a model')
-                .addOptions(ModelOptions);
+                } else if (actionType.toLowerCase() === 'img2img') {
+                    // Handle image-to-image generation
+                    const { imageURL, prompt } = await collectImageAndPrompt(interaction, 'Please send the base image and enter your prompt below it in one single message:');
 
-            const modelRow = new ActionRowBuilder().addComponents(modelSelectionMenu);
+                    // Call generateImageToImage from image_functions.js
+                    const images = await generateImageToImage({
+                        image: imageURL,
+                        userInput: prompt,
+                        negativePrompt: '', // Optionally collect negative prompt
+                        Image2Image_Model: model,
+                        strength: 0.6, // Default or collect from user
+                        seed: null,
+                        userID: interaction.user.id
+                    });
 
-            await i.update({
-                content: `Provider: ${selectedProvider}\nAction: ${selectedActionType}\nPlease select a model:`,
-                components: [modelRow]
-            });
-        });
-        // Set up the interaction handler for the final model selection menu
-        const modelFilter = i => i.customId === 'select-model' && i.user.id === interaction.user.id;
-        const modelCollector = interaction.channel.createMessageComponentCollector({ filter: modelFilter, time: 60000 });
+                    // Send the generated images to the user
+                    await sendImages(interaction, images);
 
-        modelCollector.on('collect', async i => {
-            selectedModel = i.values[0];
-            await i.update({
-                content: `Provider: ${selectedProvider}\nAction: ${selectedActionType}\nModel: ${selectedModel}`,
-                components: []
-            });
-            const image = await generateImage({
-                userInput: userInput,
-                negativePrompt: negativePrompt,
-                imageModel: selectedModel,
-                dimensions: dimensions,
-                numberOfImages: numberOfImages,
-                cfg: cfg,
-                steps: steps,
-                seed: seed,
-                userID: userID
-            });
-            // await interaction.followUp({ files: [image] });
-        });
+                } else if (actionType.toLowerCase() === 'upscale') {
+                    // Handle image upscaling
+                    const imageURL = await collectImage(interaction, 'Please upload the image you wish to upscale:');
+
+                    // Call upscaleImage from image_functions.js
+                    const images = await upscaleImage({
+                        image: imageURL,
+                        upscaleModel: model,
+                        userID: interaction.user.id
+                    });
+
+                    // Send the upscaled image to the user
+                    await sendImages(interaction, images);
+
+                } else {
+                    await interaction.followUp({ content: 'Unsupported action type.', ephemeral: true });
+                }
+            } catch (error) {
+                console.error('Error handling action type:', error);
+                if (error.code === 20009) {
+                    await interaction.followUp({ content: 'Your image contains explicit content that can not be displayed in this SFW channel. Try another channel or a DM', ephemeral: true });
+                } else {
+                    await interaction.followUp({ content: 'An unexpected error occurred. Please try again and report any bugs to help improve me!', ephemeral: true });
+                }
+            }
+        }
+
+        
 
     }
     /* End of the command functional execution */
