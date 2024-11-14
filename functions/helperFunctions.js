@@ -1,16 +1,21 @@
+/* 
+ * Author: TryFailTryAgain
+ * Copyright (c) 2024. All rights reserved. For use in Open-Source projects this
+ * may be freely copied or excerpted with credit to the author.
+ */
 const ini = require('ini');
 const fs = require('fs');
 const Filter = require('bad-words');
 const filter = new Filter({ placeHolder: '*' }); // Modify the character used to replace bad words
 const Crypto = require('crypto');
+const sharp = require('sharp'); // Add sharp if not already imported
+const { config } = require('./config.js');
 
-// File paths
-const SETTINGS_FILE_PATH = './settings.ini';
+// Helper function to read and parse ini files
+function getIniFileContent(filePath) {
+    return ini.parse(fs.readFileSync(filePath, 'utf-8'));
+}
 
-/* Acquiring Global values */
-const config = getIniFileContent(SETTINGS_FILE_PATH);
-
-// Function to check if the profanity filter is enabled or disabled from the settings.ini file
 async function filterCheck() {
     const inputFilter = config.Advanced.Filter_Naughty_Words.toLowerCase();
 
@@ -68,11 +73,6 @@ async function generateHashedUserId(userId) {
     return hashedUserId;
 }
 
-// Helper function to read and parse ini files
-function getIniFileContent(filePath) {
-    return ini.parse(fs.readFileSync(filePath, 'utf-8'));
-}
-
 // Deletes the original reply and follows up with a new ephemeral one. Mostly used for error handling
 async function deleteAndFollowUpEphemeral(interaction, message) {
     await interaction.deleteReply();
@@ -94,6 +94,80 @@ function generateRandomHex() {
     return Math.floor(Math.random() * 0xFFFFFFFF).toString(16).padStart(8, '0');
 }
 
+async function checkThenSave_ReturnSendImage(saveBuffer) {
+    if (await saveToDiskCheck()) {
+        fs.writeFileSync(
+            `./Outputs/txt2img_${generateRandomHex()}.${config.Advanced.Save_Images_As}`,
+            saveBuffer
+        );
+    }
+    if (config.Advanced.Save_Images_As === config.Advanced.Send_Images_As) {
+        return saveBuffer;
+    } else {
+        const sendBuffer = await sharp(saveBuffer)[config.Advanced.Send_Images_As]({
+            quality: parseInt(config.Advanced.Jpeg_Quality),
+        }).toBuffer();
+        return sendBuffer;
+    }
+}
+
+// Ensure saveToDiskCheck is defined or imported
+async function saveToDiskCheck() {
+    const saveImages = config.Advanced.Save_Images.toLowerCase();
+    if (saveImages === 'true') {
+        return true;
+    } else if (saveImages === 'false') {
+        return false;
+    } else {
+        throw new Error("The Save_Images setting in settings.ini is not set to true or false. Please set it to true or false");
+    }
+}
+
+/* Helper functions to collect user input */
+async function collectUserInput(interaction, promptMessage) {
+    await interaction.followUp({ content: promptMessage, ephemeral: true });
+    const filter = m => m.author.id === interaction.user.id;
+    const collected = await interaction.channel.awaitMessages({ filter, max: 1, time: 60000 });
+    if (collected.size === 0) {
+        await interaction.followUp({ content: 'Timed out waiting for user input.', ephemeral: true });
+        throw new Error('Timed out waiting for user input.');
+    }
+    return collected.first().content;
+}
+
+async function collectImageAndPrompt(interaction, promptMessage) {
+    await interaction.followUp({ content: promptMessage, ephemeral: true });
+    const filter = m => m.author.id === interaction.user.id && (m.attachments.size > 0 || m.content.length > 0);
+    const collected = await interaction.channel.awaitMessages({ filter, max: 1, time: 60000 });
+    if (collected.size === 0) {
+        await interaction.followUp({ content: 'Timed out waiting for user input.', ephemeral: true });
+        throw new Error('Timed out waiting for user input.');
+    }
+    const message = collected.first();
+    const imageURL = message.attachments.first()?.url;
+    const content = message.content;
+    return { imageURL, prompt: content };
+}
+
+async function collectImage(interaction, promptMessage) {
+    await interaction.followUp({ content: promptMessage, ephemeral: true });
+    const filter = m => m.author.id === interaction.user.id && m.attachments.size > 0;
+    const collected = await interaction.channel.awaitMessages({ filter, max: 1, time: 60000 });
+    if (collected.size === 0) {
+        await interaction.followUp({ content: 'Timed out waiting for image upload. Please re-run the command and try again.', ephemeral: true });
+        throw new Error('Timed out waiting for image upload.');
+    }
+    const imageURL = collected.first().attachments.first().url;
+    return imageURL;
+}
+
+async function sendImages(interaction, images) {
+        for (const image of images) {
+            await interaction.followUp({ files: [image] });
+        }
+    
+}
+
 module.exports = {
     filterCheck,
     filterString,
@@ -103,4 +177,10 @@ module.exports = {
     deleteAndFollowUpEphemeral,
     followUpEphemeral,
     generateRandomHex,
+    checkThenSave_ReturnSendImage,
+    saveToDiskCheck,
+    collectUserInput,
+    collectImageAndPrompt,
+    collectImage,
+    sendImages,
 };

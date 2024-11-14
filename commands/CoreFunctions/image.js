@@ -1,26 +1,24 @@
 // File: image.js
 // Author: TryFailTryAgain
-// Copyright (c) 2024. All rights reserved. For use in Open-Source projects this
-// may be freely copied or excerpted with credit to the author.
+// Copyright (c) 2024. All rights reserved.
 // See the LICENSE file for additional details
 
 const { SlashCommandBuilder, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 
-////* Getting required local files *////
+//* Getting required local files *//
 const imageFunctions = require('../../functions/image_functions.js');
-// Import the helper functions
 const helperFunctions = require('../../functions/helperFunctions.js');
+const { config } = require('../../functions/config.js');
+
 // Add all the helper functions to the global scope
 for (let key in helperFunctions) {
     global[key] = helperFunctions[key];
 }
+
 // Add all the image functions to the global scope
 for (let key in imageFunctions) {
     global[key] = imageFunctions[key];
 }
-
-// Get the settings from the settings.ini file
-const config = getIniFileContent('./settings.ini');
 
 module.exports = {
     cooldown: 1,
@@ -47,35 +45,37 @@ module.exports = {
     async execute(interaction, client) {
         await interaction.deferReply();
 
+        // Get user input and settings
         let originalUserInput = interaction.options.getString('prompt');
         let dimensions = interaction.options.getString('dimensions') || 'square';
         let imageModel = config.Image_command_settings.Image_Model;
 
-        // Filter the user input for profanity or other banned words if the setting is enabled
-        // The filter is HIGHLY recommended to keep enabled and to add to it with additional words in
-        // the node_modules/bad-words/lib/lang.json file
+        // Filter the user input for profanity or banned words
         let userInput = await filterCheckThenFilterString(originalUserInput);
 
         let imageBuffer = null;
         try {
+            // Generate the image based on user input
             imageBuffer = await generateImage({
                 userInput: userInput,
                 imageModel: imageModel,
                 dimensions: dimensions,
                 userID: interaction.user.id,
                 numberOfImages: 1
-            })
+            });
         } catch (error) {
             console.error(error);
             deleteAndFollowUpEphemeral(interaction, "An error occurred while generating the image. Please try again");
             return;
         }
 
+        // Prepare image attachments for the reply
         let attachments = [];
         for (let i = 0; i < imageBuffer.length; i++) {
             attachments.push(new AttachmentBuilder(imageBuffer[i]));
         }
 
+        // Create action buttons for user interaction. Max 5 per row
         const row1 = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId('regenerate')
@@ -84,9 +84,14 @@ module.exports = {
                 .setEmoji('➕'),
             new ButtonBuilder()
                 .setCustomId('magic')
-                .setLabel('Re-Imagine')
+                .setLabel('Creative Re-Imagine')
                 .setStyle(ButtonStyle.Primary)
                 .setEmoji('✨'),
+            new ButtonBuilder()
+                .setCustomId('refine')
+                .setLabel('Refine Image')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('🔧'),
             new ButtonBuilder()
                 .setCustomId('25similarity')
                 .setLabel('New 25% Similar')
@@ -97,35 +102,41 @@ module.exports = {
                 .setLabel('New 50% Similar')
                 .setStyle(ButtonStyle.Primary)
                 .setEmoji('🧬'),
+        );
+        // Second action row for additional options. Max 5 per row
+        const row2 = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId('upscale')
                 .setLabel('Upscale')
                 .setStyle(ButtonStyle.Primary)
                 .setEmoji('🔍'),
-        );
-        // A second action row is needed as each has a 5 button limit
-        const row2 = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setCustomId('advanced')
                 .setLabel('Advanced Options')
                 .setStyle(ButtonStyle.Secondary)
-                .setEmoji('⚙️')
+                .setEmoji('⚙️'),
+
         );
 
+        // Send initial reply with the generated image and action buttons
         const reply = await interaction.editReply({
             content: 'Consider funding your bot host to cover API fees❤️',
             files: attachments,
             components: [row1, row2],
         });
 
-        const collectorFilter = i => (i.customId === 'regenerate' || i.customId === '25similarity' || i.customId === '50similarity' || i.customId === 'upscale' || i.customId === 'advanced' || i.customId === 'magic') && i.user.id === interaction.user.id;
+        // Set up interaction collector for button clicks
+        const collectorFilter = i => ['regenerate', '25similarity', '50similarity', 'upscale', 'advanced', 'magic', 'refine'].includes(i.customId) && i.user.id === interaction.user.id;
         const collector = reply.createMessageComponentCollector({ filter: collectorFilter, time: 870_000 });
 
-        async function handleButtonInteraction(i, action) {
-            // Disable all buttons while processing
-            row1.components.forEach(component => component.setDisabled(true));
-            row2.components.forEach(component => component.setDisabled(true));
-            await i.update({ components: [row1, row2] });
+        // Function to handle button interactions
+        async function handleButtonInteraction(i, action, skipUpdate = false) {
+            if (!skipUpdate) {
+                // Disable all buttons while processing
+                row1.components.forEach(component => component.setDisabled(true));
+                row2.components.forEach(component => component.setDisabled(true));
+                await i.update({ components: [row1, row2] });
+            }
 
             try {
                 await action();
@@ -135,25 +146,24 @@ module.exports = {
                 return;
             }
 
-            // Limit the number of attachments to 9 as it keeps them in a grid.
-            // Discord also has a limit of max 10 attachments per message
-            if (attachments.length > 9) {
-                attachments = attachments.slice(0, 9);
+            if (!skipUpdate) {
+                // Enable the buttons again and update the reply
+                row1.components.forEach(component => component.setDisabled(false));
+                row2.components.forEach(component => component.setDisabled(false));
+                await i.editReply({
+                    content: '⬅️New Images first \n➡️Original Images last \n',
+                    files: attachments,
+                    components: [row1, row2],
+                });
             }
-            // Enable the buttons again
-            row1.components.forEach(component => component.setDisabled(false));
-            row2.components.forEach(component => component.setDisabled(false));
-            await i.editReply({
-                content: '⬅️New Images first \n➡️Original Images last \n',
-                files: attachments,
-                components: [row1, row2],
-            });
         }
 
+        // Handle button interactions
         collector.on('collect', async i => {
             switch (i.customId) {
                 case 'regenerate':
                     await handleButtonInteraction(i, async () => {
+                        // Generate a new image
                         imageBuffer = await generateImage({
                             userInput: userInput,
                             imageModel: imageModel,
@@ -167,6 +177,7 @@ module.exports = {
 
                 case '25similarity':
                     await handleButtonInteraction(i, async () => {
+                        // Generate an image 25% similar to the previous
                         imageBuffer = await generateImageToImage({
                             image: imageBuffer[0],
                             userInput: userInput,
@@ -181,6 +192,7 @@ module.exports = {
 
                 case '50similarity':
                     await handleButtonInteraction(i, async () => {
+                        // Generate an image 50% similar to the previous
                         imageBuffer = await generateImageToImage({
                             image: imageBuffer[0],
                             userInput: userInput,
@@ -195,6 +207,7 @@ module.exports = {
 
                 case 'upscale':
                     await handleButtonInteraction(i, async () => {
+                        // Upscale the current image
                         console.log("Upscale button pressed");
                         const upscaleModel = config.Image_command_settings.Upscale_Model;
                         const upscaledImageBuffer = await upscaleImage(imageBuffer[0], upscaleModel);
@@ -204,6 +217,7 @@ module.exports = {
 
                 case 'magic':
                     await handleButtonInteraction(i, async () => {
+                        // Optimize the prompt and generate a new image
                         const optimizedPrompt = await promptOptimizer(userInput, interaction.user.id);
                         imageBuffer = await generateImage({
                             userInput: optimizedPrompt,
@@ -216,15 +230,36 @@ module.exports = {
                     });
                     break;
 
+                case 'refine':
+                    // Show modal to refine the prompt
+                    const modal = new ModalBuilder()
+                        .setCustomId('refineModal')
+                        .setTitle('Refine Image Prompt');
+
+                    const refinementInput = new TextInputBuilder()
+                        .setCustomId('refinementInput')
+                        .setLabel('Describe what you want to change')
+                        .setStyle(TextInputStyle.Paragraph)
+                        .setMaxLength(500)
+                        .setRequired(true);
+
+                    const modalRow = new ActionRowBuilder().addComponents(refinementInput);
+                    modal.addComponents(modalRow);
+
+                    // Show the modal without disabling buttons
+                    await i.showModal(modal);
+                    break;
+
                 case 'advanced':
-                    row1.components.forEach(component => component.setDisabled(false));
-                    row2.components.forEach(component => component.setDisabled(false));
-                    await i.editReply({
-                        content: 'Consider funding your bot host to cover API fees and keep new features coming❤️',
-                        files: attachments,
-                        components: [row],
+                    await handleButtonInteraction(i, async () => {
+                        // Placeholder for advanced options
+                        await i.editReply({
+                            content: 'Consider funding your bot host to cover API fees and keep new features coming❤️',
+                            files: attachments,
+                            components: [row1, row2],
+                        });
+                        followUpEphemeral(interaction, "Currently in development! Will be functional soon!");
                     });
-                    followUpEphemeral(interaction, "Currently in development! Will be functional soon!");
                     break;
 
                 default:
@@ -233,6 +268,54 @@ module.exports = {
             }
         });
 
+        // Handle modal submission for refining the prompt
+        interaction.client.on('interactionCreate', async modalInteraction => {
+            if (!modalInteraction.isModalSubmit()) return;
+            if (modalInteraction.customId !== 'refineModal') return;
+            if (modalInteraction.user.id !== interaction.user.id) return;
+
+            // Acknowledge the modal submission
+            await modalInteraction.deferUpdate();
+
+            // Disable all buttons while processing
+            row1.components.forEach(component => component.setDisabled(true));
+            row2.components.forEach(component => component.setDisabled(true));
+
+            // Update the message to disable buttons
+            await interaction.editReply({ components: [row1, row2] });
+
+            const refinementRequest = modalInteraction.fields.getTextInputValue('refinementInput');
+            try {
+                // Adapt the prompt based on refinement and generate a new image
+                const refinedPrompt = await adaptImagePrompt(userInput, refinementRequest, interaction.user.id);
+                userInput = refinedPrompt;
+
+                imageBuffer = await generateImage({
+                    userInput: userInput,
+                    imageModel: imageModel,
+                    userID: interaction.user.id,
+                    numberOfImages: 1,
+                    dimensions: dimensions
+                });
+                attachments.unshift(new AttachmentBuilder(imageBuffer[0]));
+
+                // Enable the buttons again and update the reply
+                row1.components.forEach(component => component.setDisabled(false));
+                row2.components.forEach(component => component.setDisabled(false));
+
+                await interaction.editReply({
+                    content: '⬅️New Images first \n➡️Original Images last \n',
+                    files: attachments,
+                    components: [row1, row2],
+                });
+            } catch (error) {
+                console.error(error);
+                await modalInteraction.followUp({ content: "An error occurred while refining the image prompt.", ephemeral: true });
+                return;
+            }
+        });
+
+        // Disable buttons when the collector ends
         collector.on('end', async () => {
             row1.components.forEach(component => component.setDisabled(true));
             row2.components.forEach(component => component.setDisabled(true));
