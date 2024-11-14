@@ -5,20 +5,13 @@
 
 /* Getting required modules */
 const imageFunctions = require('./image_functions.js');
+const { config, apiKeys } = require('./config.js');
 /* Add all the image functions to the global scope */
 for (let key in imageFunctions) {
     global[key] = imageFunctions[key];
 }
 /* End required modules */
 const { OpenAI } = require('openai');
-
-// File paths
-const SETTINGS_FILE_PATH = './settings.ini';
-const API_KEYS_FILE_PATH = './api_keys.ini';
-
-// Acquiring Global values
-const config = getIniFileContent(SETTINGS_FILE_PATH);
-const apiKeys = getIniFileContent(API_KEYS_FILE_PATH);
 
 // Validate API keys
 if (!apiKeys.Keys.OpenAIChat || !apiKeys.Keys.OpenAIImage) {

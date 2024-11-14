@@ -10,17 +10,9 @@ const ini = require('ini');
 const OpenAI = require('openai');
 const Filter = require('bad-words');
 const filter = new Filter({ placeHolder: '*' });
+const { config, apiKeys } = require('../../functions/config.js');
 
-//parse the api_keys.ini file to get the API key provided
-const apiKeys = ini.parse(fs.readFileSync('./api_keys.ini', 'utf-8'));
-// Parse the settings.ini file to get the values
-const config = ini.parse(fs.readFileSync('./settings.ini', 'utf-8'));
-
-const openAIKey = apiKeys.Keys.OpenAIChat;
-if (openAIKey == "") {
-    throw new Error("The OpenAI API key is not set. Please set it in the api_keys.ini file");
-}
-const openai = new OpenAI({ apiKey: openAIKey });
+const openai = new OpenAI({ apiKey: apiKeys.Keys.OpenAIChat });
 // Get base URL for the API
 const openaiChatBaseURL = config.Advanced.OpenAI_Chat_Base_URL;
 openai.baseURL = openaiChatBaseURL;
@@ -163,7 +155,7 @@ module.exports = {
 
 
         /* Modal Handling */
-        client.on(Events.InteractionCreate, async interaction => {
+        interaction.client.on(Events.InteractionCreate, async interaction => {
             if (!interaction.isModalSubmit()) return;
             // Gets the data entered by the user
             userNouns = interaction.fields.getTextInputValue('userNouns');

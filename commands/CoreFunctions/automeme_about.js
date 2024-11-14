@@ -9,9 +9,7 @@ const fs = require('fs');
 const ini = require('ini');
 const Filter = require('bad-words');
 const filter = new Filter({ placeHolder: '*' });
-
-// Parse the settings.ini file to get the values
-const config = ini.parse(fs.readFileSync('./settings.ini', 'utf-8'));
+const { config } = require('../../functions/config.js');
 
 // This is a profanity filter that will prevent the bot from passing profanity and other rude words to the generator
 // It can be enabled or disabled in the config.json file
