@@ -1,17 +1,8 @@
-/* 
- * Author: TryFailTryAgain
- * Copyright (c) 2024. All rights reserved. For use in Open-Source projects this
- * may be freely copied or excerpted with credit to the author.
- */
 const sharp = require('sharp');
 const OpenAI = require('openai');
-const { config, apiKeys } = require('../config.js');
 
-const openAIImageKey = apiKeys.Keys.OpenAIImage;
-const openaiImageBaseURL = config.Advanced.OpenAI_Image_Base_URL;
-
-const openaiImage = new OpenAI({ apiKey: openAIImageKey });
-openaiImage.baseURL = openaiImageBaseURL;
+const openaiImage = new OpenAI({ apiKey: process.env.API_KEY_OPENAI_IMAGE});
+openaiImage.baseURL = process.env.ADVCONF_OPENAI_IMAGE_BASE_URL;
 
 async function generateImageViaDallE3({ userInput, trueDimensions, numberOfImages, userID }) {
     // Log the parameters to the console
@@ -35,7 +26,7 @@ async function generateImageViaDallE3({ userInput, trueDimensions, numberOfImage
             user: toString(userID),
         });
         // Process and save the generated image
-        const saveBuffer = await sharp((Buffer.from(response.data[0].b64_json, 'base64')))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+        const saveBuffer = await sharp((Buffer.from(response.data[0].b64_json, 'base64')))[process.env.ADVCONF_SAVE_IMAGES_AS]({ quality: parseInt(process.env.ADVCONF_JPEG_QUALITY) }).toBuffer();
         const processedBuffer = await checkThenSave_ReturnSendImage(saveBuffer);
         imageBuffer.push(processedBuffer);
     }

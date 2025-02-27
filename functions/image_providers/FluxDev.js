@@ -1,16 +1,10 @@
-/* 
- * Author: TryFailTryAgain
- * Copyright (c) 2024. All rights reserved. For use in Open-Source projects this
- * may be freely copied or excerpted with credit to the author.
- */
 const Replicate = require('replicate');
 const sharp = require('sharp');
-const { config, apiKeys } = require('../config.js');
 const { checkThenSave_ReturnSendImage } = require('../helperFunctions.js');
 
 async function generateImageViaReplicate_FluxDev({ userInput, imageModel, numberOfImages, trueDimensions, output_format, output_quality, disable_safety_checker, seed, prompt_strength, num_inference_steps }) {
     const replicate = new Replicate({
-        auth: apiKeys.Keys.Replicate,
+        auth: process.env.API_KEY_REPLICATE,
     });
 
     console.log('\n---Generating image via Replicate Flux Dev---');
@@ -43,7 +37,7 @@ async function generateImageViaReplicate_FluxDev({ userInput, imageModel, number
             const imageUrl = prediction[i];
             const response = await fetch(imageUrl);
             const arrayBuffer = await response.arrayBuffer();
-            const saveBuffer = await sharp(Buffer.from(arrayBuffer))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+            const saveBuffer = await sharp(Buffer.from(arrayBuffer))[process.env.ADVCONF_SAVE_IMAGES_AS]({ quality: parseInt(process.env.ADVCONF_JPEG_QUALITY) }).toBuffer();
 
             const processedBuffer = await checkThenSave_ReturnSendImage(saveBuffer);
             imageBuffer.push(processedBuffer);
@@ -60,7 +54,7 @@ async function generateImageViaReplicate_FluxDev({ userInput, imageModel, number
 async function generateImageToImageViaReplicate_FluxDev({ image, userInput, strength, disable_safety_checker }) {
     let imageBuffer = [];
     const replicate = new Replicate({
-        auth: apiKeys.Keys.Replicate,
+        auth: process.env.API_KEY_REPLICATE,
     });
 
     console.log('\n---Generating image-2-Image via Replicate Flux Dev---');
@@ -82,7 +76,7 @@ async function generateImageToImageViaReplicate_FluxDev({ image, userInput, stre
             const imageUrl = prediction[i];
             const response = await fetch(imageUrl);
             const arrayBuffer = await response.arrayBuffer();
-            const saveBuffer = await sharp(Buffer.from(arrayBuffer))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+            const saveBuffer = await sharp(Buffer.from(arrayBuffer))[process.env.ADVCONF_SAVE_IMAGES_AS]({ quality: parseInt(process.env.ADVCONF_JPEG_QUALITY) }).toBuffer();
 
             const processedBuffer = await checkThenSave_ReturnSendImage(saveBuffer);
             imageBuffer.push(processedBuffer);

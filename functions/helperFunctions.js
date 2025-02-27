@@ -1,15 +1,9 @@
-/* 
- * Author: TryFailTryAgain
- * Copyright (c) 2024. All rights reserved. For use in Open-Source projects this
- * may be freely copied or excerpted with credit to the author.
- */
 const ini = require('ini');
 const fs = require('fs');
 const Filter = require('bad-words');
 const filter = new Filter({ placeHolder: '*' }); // Modify the character used to replace bad words
 const Crypto = require('crypto');
 const sharp = require('sharp'); // Add sharp if not already imported
-const { config } = require('./config.js');
 
 // Helper function to read and parse ini files
 function getIniFileContent(filePath) {
@@ -17,7 +11,7 @@ function getIniFileContent(filePath) {
 }
 
 async function filterCheck() {
-    const inputFilter = config.Advanced.Filter_Naughty_Words.toLowerCase();
+    const inputFilter = process.env.ADVCONF_FILTER_NAUGHTY_WORDS.toLowerCase();
 
     // Alert console if the profanity filter is enabled or disabled
     if (inputFilter === 'true') {
@@ -61,10 +55,10 @@ async function filterCheckThenFilterString(input) {
 
 async function generateHashedUserId(userId) {
     // Generate the hash
-    salt = config.Advanced.Salt;
+    const salt = process.env.ADVCONF_SALT;
     const userIdStr = typeof userId === 'string' ? userId : String(userId);
     const saltStr = typeof salt === 'string' ? salt : String(salt);
-    
+
     const hash = Crypto.pbkdf2Sync(userIdStr, saltStr, 1000, 64, 'sha512');
 
     // Convert the hash to a hexadecimal string
@@ -97,15 +91,15 @@ function generateRandomHex() {
 async function checkThenSave_ReturnSendImage(saveBuffer) {
     if (await saveToDiskCheck()) {
         fs.writeFileSync(
-            `./Outputs/txt2img_${generateRandomHex()}.${config.Advanced.Save_Images_As}`,
+            `./Outputs/txt2img_${generateRandomHex()}.${process.env.ADVCONF_SAVE_IMAGES_AS}`,
             saveBuffer
         );
     }
-    if (config.Advanced.Save_Images_As === config.Advanced.Send_Images_As) {
+    if (process.env.ADVCONF_SAVE_IMAGES_AS === process.env.ADVCONF_SEND_IMAGES_AS) {
         return saveBuffer;
     } else {
-        const sendBuffer = await sharp(saveBuffer)[config.Advanced.Send_Images_As]({
-            quality: parseInt(config.Advanced.Jpeg_Quality),
+        const sendBuffer = await sharp(saveBuffer)[process.env.ADVCONF_SEND_IMAGES_AS]({
+            quality: parseInt(process.env.ADVCONF_JPEG_QUALITY),
         }).toBuffer();
         return sendBuffer;
     }
@@ -113,7 +107,7 @@ async function checkThenSave_ReturnSendImage(saveBuffer) {
 
 // Ensure saveToDiskCheck is defined or imported
 async function saveToDiskCheck() {
-    const saveImages = config.Advanced.Save_Images.toLowerCase();
+    const saveImages = process.env.ADVCONF_SAVE_IMAGES.toLowerCase();
     if (saveImages === 'true') {
         return true;
     } else if (saveImages === 'false') {
@@ -162,10 +156,10 @@ async function collectImage(interaction, promptMessage) {
 }
 
 async function sendImages(interaction, images) {
-        for (const image of images) {
-            await interaction.followUp({ files: [image] });
-        }
-    
+    for (const image of images) {
+        await interaction.followUp({ files: [image] });
+    }
+
 }
 
 module.exports = {

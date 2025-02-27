@@ -1,0 +1,14 @@
+services:
+  app:
+    container_name: F-S-AI-C-G-D-B
+    build: .
+    environment:
+      DISCORD_TOKEN: "your-discord-token"
+      DISCORD_CLIENT_ID: "your-discord-client-id"
+      DISCORD_GUILD_ID: "your-discord-guild-id"
+      API_KEY_OPENAI_CHAT: "your-openai-compatible-API-key"
+      API_KEY_OPENAI_IMAGE: "your-openai-compatible-API-key"
+      API_KEY_REPLICATE: "your-replicate-API-key"
+      API_KEY_STABILITYAI: "your-stabilityai-API-key"
+    volumes:
+      - ./Outputs:/app/Outputs

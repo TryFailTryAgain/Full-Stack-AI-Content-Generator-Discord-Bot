@@ -40,7 +40,7 @@ function startChatCollector(interaction, time) {
         // Reply to the user's message with the chatbot's response
         m.reply(chatResponse);
     });
-    
+
     // Store the collector in the activeCollectors map
     activeCollectors.set(channelId, collector);
 

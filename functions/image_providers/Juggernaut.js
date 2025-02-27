@@ -1,11 +1,6 @@
-/* 
- * Author: TryFailTryAgain
- * Copyright (c) 2024. All rights reserved. For use in Open-Source projects this
- * may be freely copied or excerpted with credit to the author.
- */
 const Replicate = require('replicate');
 const sharp = require('sharp');
-const { config, apiKeys } = require('../config.js');
+const { apiKeys } = { Keys: { Replicate: process.env.API_KEY_REPLICATE } };
 const { checkThenSave_ReturnSendImage } = require('../helperFunctions.js');
 
 async function generateImageViaReplicate_Juggernaut({ userInput, negativePrompt, imageModel, trueDimensions, numberOfImages, steps, disable_safety_checker }) {
@@ -45,7 +40,7 @@ async function generateImageViaReplicate_Juggernaut({ userInput, negativePrompt,
             const imageUrl = prediction[i];
             const response = await fetch(imageUrl);
             const arrayBuffer = await response.arrayBuffer();
-            const saveBuffer = await sharp(Buffer.from(arrayBuffer))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+            const saveBuffer = await sharp(Buffer.from(arrayBuffer))[process.env.ADVCONF_SAVE_IMAGES_AS]({ quality: parseInt(process.env.ADVCONF_JPEG_QUALITY) }).toBuffer();
 
             const processedBuffer = await checkThenSave_ReturnSendImage(saveBuffer);
             imageBuffer.push(processedBuffer);

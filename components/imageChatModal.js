@@ -51,7 +51,7 @@ module.exports = {
                     const toBeReplacedValue = modalInteraction.fields.getTextInputValue('toBeReplaced');
                     const replaceWithValue = modalInteraction.fields.getTextInputValue('replaceWith');
                     const negativePrompt = modalInteraction.fields.getTextInputValue('negative_prompt');
-                    resolve({toBeReplaced: toBeReplacedValue, replaceWith: replaceWithValue, negativePrompt: negativePrompt});
+                    resolve({ toBeReplaced: toBeReplacedValue, replaceWith: replaceWithValue, negativePrompt: negativePrompt });
                     modalInteraction.deferUpdate();
                 })
                 .catch(error => {

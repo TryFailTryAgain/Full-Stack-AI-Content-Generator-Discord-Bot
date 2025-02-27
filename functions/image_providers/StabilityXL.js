@@ -1,13 +1,6 @@
-/* 
- * Author: TryFailTryAgain
- * Copyright (c) 2024. All rights reserved. For use in Open-Source projects this
- * may be freely copied or excerpted with credit to the author.
- */
 const sharp = require('sharp');
-const { config, apiKeys } = require('../config.js');
 const { checkThenSave_ReturnSendImage } = require('../helperFunctions.js');
 
-const StabilityAIKey = apiKeys.Keys.StabilityAI;
 
 async function generateImageViaStabilityAIv1({ userInput, negativePrompt, trueDimensions, imageModel, numberOfImages, cfg, steps, seed, userID }) {
     const apiHost = 'https://api.stability.ai';
@@ -33,7 +26,7 @@ async function generateImageViaStabilityAIv1({ userInput, negativePrompt, trueDi
         headers: {
             'Content-Type': 'application/json',
             Accept: 'application/json',
-            Authorization: StabilityAIKey,
+            Authorization: process.env.API_KEY_STABILITYAI,
             'Stability-Client-ID': userID,
         },
         body: JSON.stringify({
@@ -62,7 +55,7 @@ async function generateImageViaStabilityAIv1({ userInput, negativePrompt, trueDi
             const responseJSON = await response.json();
             for (const [index, image] of responseJSON.artifacts.entries()) {
                 const promise = (async () => {
-                    const saveBuffer = await sharp(Buffer.from(image.base64, 'base64'))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+                    const saveBuffer = await sharp(Buffer.from(image.base64, 'base64'))[process.env.ADVCONF_SAVE_IMAGES_AS]({ quality: parseInt(process.env.ADVCONF_JPEG_QUALITY) }).toBuffer();
                     const processedBuffer = await checkThenSave_ReturnSendImage(saveBuffer);
                     imageBuffer.push(processedBuffer);
                 })();
@@ -92,7 +85,7 @@ async function searchAndReplace(image, search, replace, negative_prompt, userID)
     const formData = new FormData();
     formData.append('prompt', replace);
     formData.append('search_prompt', search);
-    formData.append('image', image, { filename: 'image.' + config.Advanced.Send_Images_As, contentType: 'image/' + config.Advanced.Send_Images_As });
+    formData.append('image', image, { filename: 'image.' + process.env.ADVCONF_SEND_IMAGES_AS, contentType: 'image/' + process.env.ADVCONF_SEND_IMAGES_AS });
     formData.append('output_format', 'png');
     formData.append('negative_prompt', negative_prompt);
 
@@ -100,7 +93,7 @@ async function searchAndReplace(image, search, replace, negative_prompt, userID)
         method: 'POST',
         body: formData,
         headers: {
-            Authorization: StabilityAIKey,
+            Authorization: process.env.API_KEY_STABILITYAI,
             Accept: "image/*",
             ...formData.getHeaders(),
         },
@@ -108,7 +101,7 @@ async function searchAndReplace(image, search, replace, negative_prompt, userID)
     const arrayBuffer = await response.arrayBuffer();
 
     if (response.ok) {
-        const saveBuffer = await sharp(Buffer.from(arrayBuffer))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+        const saveBuffer = await sharp(Buffer.from(arrayBuffer))[process.env.ADVCONF_SAVE_IMAGES_AS]({ quality: parseInt(process.env.ADVCONF_JPEG_QUALITY) }).toBuffer();
         // Saves images to disk if the setting is enabled, otherwise only send them to Discord
         const processedBuffer = await checkThenSave_ReturnSendImage(saveBuffer);
         imageBuffer.push(processedBuffer);

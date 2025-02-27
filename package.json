@@ -1,16 +1,16 @@
 {
-  "name": "full-stack-ai-meme-generator-discord-bot",
+  "name": "full-stack-ai-content-generator-discord-bot",
   "version": "1.0.0",
-  "description": "https://github.com/TryFailTryAgain/Full-Stack-AI-Meme-Generator-Discord-Bot",
+  "description": "https://github.com/TryFailTryAgain/Full-Stack-AI-Content-Generator-Discord-Bot",
   "main": "index.js",
   "dependencies": {
     "axios": "^1.7.4",
     "bad-words": "^3.0.4",
     "discord.js": "^14.17.3",
+    "dotenv": "^16.4.7",
     "form-data": "^4.0.0",
     "ini": "^4.1.1",
     "openai": "^4.2.0",
-    "readable-stream": "^3.6.2",
     "replicate": "^0.31.1",
     "sharp": "^0.33.3"
   },

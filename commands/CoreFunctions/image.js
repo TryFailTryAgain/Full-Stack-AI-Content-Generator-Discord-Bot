@@ -8,7 +8,6 @@ const { SlashCommandBuilder, AttachmentBuilder, ActionRowBuilder, ButtonBuilder,
 //* Getting required local files *//
 const imageFunctions = require('../../functions/image_functions.js');
 const helperFunctions = require('../../functions/helperFunctions.js');
-const { config } = require('../../functions/config.js');
 
 // Add all the helper functions to the global scope
 for (let key in helperFunctions) {
@@ -48,7 +47,7 @@ module.exports = {
         // Get user input and settings
         let originalUserInput = interaction.options.getString('prompt');
         let dimensions = interaction.options.getString('dimensions') || 'square';
-        let imageModel = config.Image_command_settings.Image_Model;
+        let imageModel = process.env.IMAGE_MODEL;
 
         // Filter the user input for profanity or banned words
         let userInput = await filterCheckThenFilterString(originalUserInput);
@@ -182,7 +181,7 @@ module.exports = {
                             image: imageBuffer[0],
                             userInput: userInput,
                             negativePrompt: "",
-                            Image2Image_Model: config.Image_command_settings.Image2Image_Model,
+                            Image2Image_Model: process.env.IMAGE_IMAGE2IMAGE_MODEL,
                             strength: 0.75,
                             userID: interaction.user.id
                         });
@@ -197,7 +196,7 @@ module.exports = {
                             image: imageBuffer[0],
                             userInput: userInput,
                             negativePrompt: "",
-                            Image2Image_Model: config.Image_command_settings.Image2Image_Model,
+                            Image2Image_Model: process.env.IMAGE_IMAGE2IMAGE_MODEL,
                             strength: 0.5,
                             userID: interaction.user.id
                         });
@@ -209,7 +208,7 @@ module.exports = {
                     await handleButtonInteraction(i, async () => {
                         // Upscale the current image
                         console.log("Upscale button pressed");
-                        const upscaleModel = config.Image_command_settings.Upscale_Model;
+                        const upscaleModel = process.env.IMAGE_UPSCALE_MODEL;
                         const upscaledImageBuffer = await upscaleImage(imageBuffer[0], upscaleModel);
                         attachments.unshift(new AttachmentBuilder(upscaledImageBuffer));
                     });

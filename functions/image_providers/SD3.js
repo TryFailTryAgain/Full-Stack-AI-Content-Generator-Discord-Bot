@@ -1,16 +1,9 @@
-/* 
- * Author: TryFailTryAgain
- * Copyright (c) 2024. All rights reserved. For use in Open-Source projects this
- * may be freely copied or excerpted with credit to the author.
- */
 const axios = require('axios');
 const sharp = require('sharp');
 const FormData = require('form-data'); // Added import
 const fs = require('fs'); // Added import if needed
-const { config, apiKeys } = require('../config.js');
 const { checkThenSave_ReturnSendImage } = require('../helperFunctions');
 
-const StabilityAIKey = apiKeys.Keys.StabilityAI;
 
 async function generateImageViaSD3({ userInput, negativePrompt, trueDimensions, imageModel, numberOfImages }) {
     const apiUrl = 'https://api.stability.ai/v2beta/stable-image/generate/sd3';
@@ -42,14 +35,14 @@ async function generateImageViaSD3({ userInput, negativePrompt, trueDimensions, 
                 validateStatus: undefined,
                 responseType: "arraybuffer",
                 headers: {
-                    Authorization: StabilityAIKey,
+                    Authorization: process.env.API_KEY_STABILITYAI,
                     Accept: "image/*",
                 },
             }
         );
 
         if (response.status === 200) {
-            const saveBuffer = await sharp(Buffer.from(response.data))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+            const saveBuffer = await sharp(Buffer.from(response.data))[process.env.ADVCONF_SAVE_IMAGES_AS]({ quality: parseInt(process.env.ADVCONF_JPEG_QUALITY) }).toBuffer();
             const processedBuffer = await checkThenSave_ReturnSendImage(saveBuffer);
             imageBuffer.push(processedBuffer);
         } else {
@@ -82,7 +75,7 @@ async function generateImageToImageViaStabilityAISD3({ userInput, negativePrompt
     console.log('-Strength:', strength);
     console.log('-Number of Images:', numberOfImages);
 
-    for (let i = 0; i < numberOfImages; i++) {   
+    for (let i = 0; i < numberOfImages; i++) {
         let processedImageBuffer;
         if (isUrl(image)) {
             // Fetch image from URL
@@ -91,7 +84,7 @@ async function generateImageToImageViaStabilityAISD3({ userInput, negativePrompt
         } else {
             processedImageBuffer = image;
         }
-        
+
         const form = new FormData();
         form.append('model', imageModel);
         form.append('prompt', userInput);
@@ -110,7 +103,7 @@ async function generateImageToImageViaStabilityAISD3({ userInput, negativePrompt
             {
                 headers: {
                     ...form.getHeaders(),
-                    Authorization: StabilityAIKey,
+                    Authorization: process.env.API_KEY_STABILITYAI,
                     Accept: "image/*",
                 },
                 responseType: "arraybuffer",
@@ -119,7 +112,7 @@ async function generateImageToImageViaStabilityAISD3({ userInput, negativePrompt
         );
 
         if (response.status === 200) {
-            const saveBuffer = await sharp(Buffer.from(response.data))[config.Advanced.Save_Images_As]({ quality: parseInt(config.Advanced.Jpeg_Quality) }).toBuffer();
+            const saveBuffer = await sharp(Buffer.from(response.data))[process.env.ADVCONF_SAVE_IMAGES_AS]({ quality: parseInt(process.env.ADVCONF_JPEG_QUALITY) }).toBuffer();
             const processedBuffer = await checkThenSave_ReturnSendImage(saveBuffer);
             imageBuffer.push(processedBuffer);
         } else {

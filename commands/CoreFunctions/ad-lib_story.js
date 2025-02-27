@@ -10,16 +10,15 @@ const ini = require('ini');
 const OpenAI = require('openai');
 const Filter = require('bad-words');
 const filter = new Filter({ placeHolder: '*' });
-const { config, apiKeys } = require('../../functions/config.js');
 
-const openai = new OpenAI({ apiKey: apiKeys.Keys.OpenAIChat });
+const openai = new OpenAI({ apiKey: process.env.API_KEY_OPENAI_CHAT });
 // Get base URL for the API
-const openaiChatBaseURL = config.Advanced.OpenAI_Chat_Base_URL;
+const openaiChatBaseURL = process.env.ADVCONF_OPENAI_CHAT_BASE_URL;
 openai.baseURL = openaiChatBaseURL;
 
 
-// This is a profanity filter that will prevent the bot from passing profanity and other rude words to the generator
-// It can be enabled or disabled in the config.json file
+// This is a profanity filter that will prevent the bot from passing profanity.
+// It can be enabled or disabled via environment variables.
 if (filterCheck()) {
     console.log("Profanity filter -- /ad-lib-story == ENABLED");
 } else {
@@ -191,7 +190,7 @@ async function generateStory(userInput) {
     try {
         // Calls the OpenAI API to generate a story based on the prompt provided
         const story = await openai.chat.completions.create({
-            model: config.Ad_lib_story_settings.Prompt_Model,
+            model: process.env.ADLIB_PROMPT_MODEL, // using environment variable
             messages: [
                 // Provides instructions to the AI on how to generate the story
                 { role: "system", content: "You are a Madlibs style story writer who will always respond with a short story in its correct formatting by using [NOUN], [VERB], [ADVERB], [ADJECTIVE] to replace some words and nothing else. Your task is to generate a MadLibs style short story that has occasional placeholders where nouns, verbs, adjectives, and adverbs would be that are formatted as [NOUN], [VERB], [ADVERB], [ADJECTIVE]. Only replace some of the words with their appropriate placeholder so that when filled in with a user provided word it could make for a humorous story. You may or may not be provided with a user provided prompt that you should use to define the general direction of the story, if no prompt is provided when told what it is, you are free to write as you please." },
@@ -276,15 +275,13 @@ async function placeholderCount(story) {
 }
 
 async function filterCheck() {
-    const inputFilter = config.Advanced.Filter_Naughty_Words;
-    // Alert console if the profanity filter is enabled or disabled
-    if (inputFilter == 'true' || inputFilter == 'True' || inputFilter == 'TRUE') {
+    const inputFilter = process.env.ADVCONF_FILTER_NAUGHTY_WORDS;
+    if (inputFilter === 'true' || inputFilter === 'True' || inputFilter === 'TRUE') {
         return true;
-
-    } else if (inputFilter == 'false' || inputFilter == 'False' || inputFilter == 'FALSE') {
+    } else if (inputFilter === 'false' || inputFilter === 'False' || inputFilter === 'FALSE') {
         return false;
     } else {
-        throw new Error("The Filter_Naughty_Words setting in settings.ini is not set to true or false. Please set it to true or false");
+        throw new Error("ADVCONF_FILTER_NAUGHTY_WORDS is not set to true or false in .env.defaults");
     }
 }
 

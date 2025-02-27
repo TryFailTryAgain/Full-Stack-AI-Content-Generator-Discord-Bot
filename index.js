@@ -1,22 +1,25 @@
-// Require the necessary discord.js classes
+// Load environment variables from .env.defaults. Can be overridden by Compose file
+require('dotenv').config({ path: '.env.defaults' });
+// Api keys and other sensitive data that would otherwise be in the compose file if running without docker
+require('dotenv').config({ path: '.env.local' });
+
 const fs = require('node:fs');
 const path = require('node:path');
 const { Client, Collection, GatewayIntentBits, Partials } = require('discord.js');
-// File containing the bot token
-// !!!!!DO NOT COMMIT THIS FILE!!!!!
-const { token } = require('./config.json');
+// Use environment variable for the bot token:
+const token = process.env.DISCORD_TOKEN;
 
 // Create a new client instance
-const client = new Client({ 
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.DirectMessages,
-        GatewayIntentBits.GuildMembers
-    ], 
-    partials: [Partials.Channel],
-    timeout: 120_000 
+const client = new Client({
+	intents: [
+		GatewayIntentBits.Guilds,
+		GatewayIntentBits.GuildMessages,
+		GatewayIntentBits.MessageContent,
+		GatewayIntentBits.DirectMessages,
+		GatewayIntentBits.GuildMembers
+	],
+	partials: [Partials.Channel],
+	timeout: 120_000
 });
 
 // Gets all the command files in the commands directory

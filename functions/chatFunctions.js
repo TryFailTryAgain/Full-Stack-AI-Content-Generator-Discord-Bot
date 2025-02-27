@@ -5,7 +5,6 @@
 
 /* Getting required modules */
 const imageFunctions = require('./image_functions.js');
-const { config, apiKeys } = require('./config.js');
 /* Add all the image functions to the global scope */
 for (let key in imageFunctions) {
     global[key] = imageFunctions[key];
@@ -14,30 +13,29 @@ for (let key in imageFunctions) {
 const { OpenAI } = require('openai');
 
 // Validate API keys
-if (!apiKeys.Keys.OpenAIChat || !apiKeys.Keys.OpenAIImage) {
-    throw new Error("OpenAIChat API key is not set in api_keys.ini");
+if (!process.env.API_KEY_OPENAI_CHAT || !process.env.API_KEY_OPENAI_IMAGE) {
+    throw new Error("OpenAIChat API key is not set in environment variables");
 }
 // Get base URL for the API
-const openaiChatBaseURL = config.Advanced.OpenAI_Chat_Base_URL;
-const openaiImageBaseURL = config.Advanced.OpenAI_Image_Base_URL;
+const openaiChatBaseURL = process.env.ADVCONF_OPENAI_CHAT_BASE_URL;
+const openaiImageBaseURL = process.env.ADVCONF_OPENAI_IMAGE_BASE_URL;
 
 // Set the API keys for OpenAI and the base URL
-const openaiChat = new OpenAI({ apiKey: apiKeys.Keys.OpenAIChat });
+const openaiChat = new OpenAI({ apiKey: process.env.API_KEY_OPENAI_CHAT });
 openaiChat.baseURL = openaiChatBaseURL;
-const openaiImage = new OpenAI({ apiKey: apiKeys.Keys.OpenAIImage });
+const openaiImage = new OpenAI({ apiKey: process.env.API_KEY_OPENAI_IMAGE });
 openaiImage.baseURL = openaiImageBaseURL;
 
 // This is a profanity filter that will prevent the bot from passing profanity and other rude words
-// It can be enabled or disabled in the config.json file
 console.log(`Profanity filter -- /Chat == ${filterCheck() ? 'ENABLED' : 'DISABLED'}`);
 
 // Get the model and parameters to pass to the LLM API
 function getChatSettings() {
     return {
-        chatModel: config.Chat_Command_Settings.Chat_Model,
-        chatTemperature: parseFloat(config.Chat_Command_Settings.Chat_Temperature),
-        maxTokens: parseInt(config.Chat_Command_Settings.Max_Tokens),
-        systemMessage: config.Chat_Command_Settings.System_Message
+        chatModel: process.env.CHAT_MODEL,
+        chatTemperature: parseFloat(process.env.CHAT_TEMPERATURE),
+        maxTokens: parseInt(process.env.CHAT_MAX_TOKENS),
+        systemMessage: process.env.CHAT_SYSTEM_MESSAGE
     };
 }
 

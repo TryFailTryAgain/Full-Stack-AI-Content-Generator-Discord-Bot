@@ -1,13 +1,10 @@
-/* 
- * Author: TryFailTryAgain
- * Copyright (c) 2024. All rights reserved. For use in Open-Source projects this
- * may be freely copied or excerpted with credit to the author.
- */
+// File: image_functions.js
+// Author: TryFailTryAgain
+// Copyright (c) 2024. All rights reserved.
 
 // Getting required modules
 const fs = require('fs');
 const OpenAI = require('openai');
-const { config, apiKeys } = require('./config.js');
 
 // Import the helper functions
 const helperFunctions = require('./helperFunctions.js');
@@ -26,11 +23,8 @@ const { generateImageViaReplicate_FluxSchnell } = require('./image_providers/Flu
 const { generateImageViaReplicate_FluxDev, generateImageToImageViaReplicate_FluxDev } = require('./image_providers/FluxDev.js');
 const { upscaleImageViaReplicate_esrgan } = require('./image_providers/ReplicateESRGAN.js');
 
-const openAIChatKey = apiKeys.Keys.OpenAIChat;
-const openAIImageKey = apiKeys.Keys.OpenAIImage;
-const openaiChatBaseURL = config.Advanced.OpenAI_Chat_Base_URL;
-
-const openaiChat = new OpenAI({ apiKey: openAIChatKey });
+const openaiChatBaseURL = process.env.ADVCONF_OPENAI_CHAT_BASE_URL;
+const openaiChat = new OpenAI({ apiKey: process.env.API_KEY_OPENAI_CHAT });
 openaiChat.baseURL = openaiChatBaseURL;
 
 // Profanity filter and save images setting
@@ -91,7 +85,7 @@ async function generateImage({ userInput, negativePrompt, imageModel, dimensions
                 numberOfImages: numberOfImages,
                 cfg: cfg,
                 steps: steps,
-                disable_safety_checker: !Boolean(config.Advanced.Image_Safety_Check)
+                disable_safety_checker: !Boolean(process.env.ADVCONF_IMAGE_SAFTY_CHECK)
             });
             break;
         case "black-forest-labs/flux-schnell":
@@ -102,7 +96,7 @@ async function generateImage({ userInput, negativePrompt, imageModel, dimensions
                 trueDimensions: trueDimensions,
                 output_format: "webp",
                 output_quality: 100,
-                disable_safety_checker: !Boolean(config.Advanced.Image_Safety_Check),
+                disable_safety_checker: !Boolean(process.env.ADVCONF_IMAGE_SAFTY_CHECK),
             });
             break;
         case "black-forest-labs/flux-dev":
@@ -113,7 +107,7 @@ async function generateImage({ userInput, negativePrompt, imageModel, dimensions
                 trueDimensions: trueDimensions,
                 output_format: "webp",
                 output_quality: 100,
-                disable_safety_checker: !Boolean(config.Advanced.Image_Safety_Check),
+                disable_safety_checker: !Boolean(process.env.ADVCONF_IMAGE_SAFTY_CHECK),
                 seed: seed,
                 //prompt_strength: null,
                 //num_inference_steps: null
@@ -148,7 +142,7 @@ async function generateImageToImage({ image, userInput, negativePrompt, Image2Im
                 image: image,
                 userInput: userInput,
                 strength: strength,
-                disable_safety_checker: !Boolean(config.Advanced.Image_Safety_Check),
+                disable_safety_checker: !Boolean(process.env.ADVCONF_IMAGE_SAFTY_CHECK),
             });
             break;
         default:
@@ -160,7 +154,7 @@ async function generateImageToImage({ image, userInput, negativePrompt, Image2Im
 
 // TODO: Implement generateImageEdit function
 async function generateImageEdit({ image, instructions, imageModel, userID }) {
-return -1;
+    return -1;
 }
 
 async function upscaleImage(imageBuffer, upscaleModel) {
@@ -181,10 +175,10 @@ async function promptOptimizer(userInput, userID) {
     // Send the prompt to openai's API to optimize it
     console.log("--Optimizing prompt--");
     // Get some values from settings.ini to define the model and the messages to send to openai
-    const Prompt_Model = config.Image_command_settings.Prompt_Model;
-    const temperature = config.Image_command_settings.Optimizer_Temperature;
-    const systemMessage = config.Image_command_settings.System_Message;
-    const userMessage = config.Image_command_settings.User_Message;
+    const Prompt_Model = process.env.IMAGE_PROMPT_MODEL;
+    const temperature = process.env.IMAGE_OPTIMIZER_TEMPERATURE;
+    const systemMessage = process.env.IMAGE_SYSTEM_MESSAGE;
+    const userMessage = process.env.IMAGE_USER_MESSAGE;
 
     // Generate a hashed user ID to send to openai instead of the original user ID
     const hashedUserID = await generateHashedUserId(userID);
@@ -228,11 +222,11 @@ async function promptOptimizer(userInput, userID) {
 // Function to adapt the image prompt used for image generation to align with the users input as requested via chat refinement
 async function adaptImagePrompt(currentPrompt, refinementRequest, userID) {
     console.log("--Adapting the prompt based on user refinement request--");
-    
-    const Prompt_Model = config.Image_command_settings.Prompt_Model;
-    const temperature = config.Image_command_settings.Optimizer_Temperature;
-    const systemMessage = config.Image_command_settings.ChatRefinementSystemMessage;
-    const userMessageTemplate = config.Image_command_settings.ChatRefinementUserMessage;
+
+    const Prompt_Model = process.env.IMAGE_PROMPT_MODEL;
+    const temperature = process.env.IMAGE_OPTIMIZER_TEMPERATURE;
+    const systemMessage = process.env.IMAGE_CHAT_REFINEMENT_SYSTEM_MESSAGE;
+    const userMessageTemplate = process.env.IMAGE_CHAT_REFINEMENT_USER_MESSAGE;
 
     // Filter the refinement request
     refinementRequest = await filterCheckThenFilterString(refinementRequest);
@@ -249,7 +243,7 @@ async function adaptImagePrompt(currentPrompt, refinementRequest, userID) {
                 },
                 {
                     "role": "user",
-                    "content": userMessageTemplate.replace('[sdPrompt]', currentPrompt).replace('[refinementRequest]', refinementRequest)
+                    "content": userMessageTemplate.replace('[originalPrompt]', currentPrompt).replace('[refinementRequest]', refinementRequest)
                 }
             ],
             temperature: Number(temperature),
@@ -283,7 +277,7 @@ async function adaptImagePrompt(currentPrompt, refinementRequest, userID) {
 
 // Check if the user wants to save the images to disk or not
 async function saveToDiskCheck() {
-    const saveImages = config.Advanced.Save_Images.toLowerCase();
+    const saveImages = process.env.ADVCONF_SAVE_IMAGES.toLowerCase();
     if (saveImages === 'true') {
         return true;
     } else if (saveImages === 'false') {
@@ -356,7 +350,7 @@ function getDimensions(imageModel, dimensionType) {
             'wide': '16:9'
         },
     };
-    
+
     return (dimensionsMap[imageModel] || {})[dimensionType] || 'Invalid dimension type';
 }
 
