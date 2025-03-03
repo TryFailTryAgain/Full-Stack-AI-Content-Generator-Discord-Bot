@@ -1,7 +1,7 @@
 const sharp = require('sharp');
 const OpenAI = require('openai');
 
-const openaiImage = new OpenAI({ apiKey: process.env.API_KEY_OPENAI_IMAGE});
+const openaiImage = new OpenAI({ apiKey: process.env.API_KEY_OPENAI_IMAGE });
 openaiImage.baseURL = process.env.ADVCONF_OPENAI_IMAGE_BASE_URL;
 
 async function generateImageViaDallE3({ userInput, trueDimensions, numberOfImages, userID }) {

@@ -12,7 +12,7 @@ const path = require('node:path');
 
 async function deployCommands() {
   console.log('Starting global command deployment...');
-  
+
   const commands = [];
   // Grab all the command files from the commands directory you created earlier
   const foldersPath = path.join(__dirname, 'commands');

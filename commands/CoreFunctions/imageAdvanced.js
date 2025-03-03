@@ -31,7 +31,7 @@ module.exports = {
         };
 
         // Creates the initial selection menu for action types
-        const actionOptions = Object.keys(advSettings).map(type => 
+        const actionOptions = Object.keys(advSettings).map(type =>
             new StringSelectMenuOptionBuilder()
                 .setLabel(type.charAt(0).toUpperCase() + type.slice(1))
                 .setDescription(`Generate images using ${type} method`)
@@ -63,9 +63,9 @@ module.exports = {
                     .map(model => model.trim());
                 const uniqueModels = [...new Set(models)];
 
-                const modelOptions = uniqueModels.map(model => 
+                const modelOptions = uniqueModels.map(model =>
                     new StringSelectMenuOptionBuilder()
-                        .setLabel(model.length <= 25 ? model : model.substring(0,25))
+                        .setLabel(model.length <= 25 ? model : model.substring(0, 25))
                         .setDescription(`Use ${model.split('/').pop()} model`)
                         .setValue(model)
                 );
