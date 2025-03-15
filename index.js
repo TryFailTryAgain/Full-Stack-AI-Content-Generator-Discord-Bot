@@ -1,7 +1,7 @@
 // Load environment variables from .env.defaults. Can be overridden by Compose file
 require('dotenv').config({ path: '.env.defaults' });
-// Api keys and other sensitive data that would otherwise be in the compose file if running without docker
-require('dotenv').config({ path: '.env.local' });
+// Updated to override variables loaded from .env.defaults
+require('dotenv').config({ path: '.env.local', override: true });
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -17,9 +17,7 @@ async function startup() {
 	console.log('Starting Discord bot initialization...');
 
 	// Check if we need to deploy commands first
-	const shouldDeployCommands = process.env.DEPLOY_COMMANDS_ON_STARTUP === 'true';
-
-	if (shouldDeployCommands) {
+	if (process.env.DEPLOY_COMMANDS_ON_STARTUP === 'true') {
 		console.log('DEPLOY_COMMANDS_ON_STARTUP is enabled, deploying commands...');
 		try {
 			await deployCommands();
@@ -39,7 +37,8 @@ async function startup() {
 			GatewayIntentBits.GuildMessages,
 			GatewayIntentBits.MessageContent,
 			GatewayIntentBits.DirectMessages,
-			GatewayIntentBits.GuildMembers
+			GatewayIntentBits.GuildMembers,
+			GatewayIntentBits.GuildVoiceStates
 		],
 		partials: [Partials.Channel],
 		timeout: 120_000

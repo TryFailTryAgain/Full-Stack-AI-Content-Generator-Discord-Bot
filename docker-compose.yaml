@@ -10,5 +10,7 @@ services:
       API_KEY_OPENAI_IMAGE: "your-openai-compatible-API-key"
       API_KEY_REPLICATE: "your-replicate-API-key"
       API_KEY_STABILITYAI: "your-stabilityai-API-key"
+      DEPLOY_COMMANDS_ON_STARTUP: "true"
     volumes:
       - ./Outputs:/app/Outputs
+      

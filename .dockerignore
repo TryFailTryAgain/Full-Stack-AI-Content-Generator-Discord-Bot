@@ -1,0 +1,37 @@
+# Ignore assets folder
+assets/
+assets/*
+
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+
+# Environment files
+.env
+.env.*
+!.env.defaults
+
+# Development files
+*.log
+*.md
+*.test.js
+tests/
+__tests__/
+coverage/
+
+# Editor directories
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
