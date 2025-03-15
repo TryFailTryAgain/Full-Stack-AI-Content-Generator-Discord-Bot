@@ -6,6 +6,9 @@ WORKDIR /app
 # Copy package.json and package-lock.json
 COPY package*.json ./
 
+# Install build tools required for compiling Sodium package
+RUN apk add --no-cache build-base python3 libtool autoconf automake
+
 # Install dependencies & clean up
 RUN npm install --production && npm cache clean --force
 
