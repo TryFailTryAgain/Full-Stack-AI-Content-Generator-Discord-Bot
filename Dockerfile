@@ -32,6 +32,9 @@ LABEL org.opencontainers.image.description="https://github.com/TryFailTryAgain/F
 # Copy only the necessary files from the builder stage
 COPY --from=builder --chown=nodeuser:nodeuser /app .
 
+# Add ffmpeg to production image
+RUN apk add --no-cache ffmpeg
+
 # Ensure the Outputs directory exists and is owned by nodeuser
 RUN mkdir -p /app/Outputs && chown -R nodeuser:nodeuser /app/Outputs
 
