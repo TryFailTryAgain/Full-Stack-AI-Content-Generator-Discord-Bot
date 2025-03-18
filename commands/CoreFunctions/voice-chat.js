@@ -1,16 +1,16 @@
+/* 
+* File: chatFunctions.js
+* Author: TryFailTryAgain
+* Copyright (c) 2025. All rights reserved. For use in Open-Source projects this
+* may be freely copied or excerpted with credit to the author.
+*/
 const { SlashCommandBuilder, ChannelType } = require('discord.js');
 const { followUpEphemeral } = require('../../functions/helperFunctions.js');
 const { VoiceConnectionStatus } = require('@discordjs/voice');
-const {
-	setupRealtimeVoiceWS,
-	streamOpenAIAudio,
-	streamUserAudioToOpenAI,
-	updateSessionParams,
-	handleJoinVoiceChannel,
-	gracefulDisconnect,
-	injectMessageGetResponse,
-	setupVoiceChatTimeLimit
-} = require('../../functions/voiceFunctions.js');
+const { handleJoinVoiceChannel, gracefulDisconnect } = require('../../functions/voice/channelConnection.js');
+const { setupRealtimeVoiceWS, updateSessionParams, injectMessageGetResponse } = require('../../functions/voice/openaiControl.js');
+const { streamOpenAIAudio, streamUserAudioToOpenAI } = require('../../functions/voice/audioStreaming.js');
+const { setupVoiceChatTimeLimit } = require('../../functions/voice/sessionManagement.js');
 
 module.exports = {
 	data: new SlashCommandBuilder()
