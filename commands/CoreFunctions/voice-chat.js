@@ -21,11 +21,17 @@ module.exports = {
 				.setDescription('The voice channel the bot should join')
 				.setRequired(true)
 				.addChannelTypes(ChannelType.GuildVoice)
+		)
+		.addBooleanOption((option) =>
+			option.setName('no_interruptions')
+				.setDescription('When enabled, bot will finish speaking even if users talk over it')
+				.setRequired(false)
 		),
 
 	async execute(interaction) {
 		const timeLimit = process.env.VOICE_CHAT_TIME_LIMIT;
 		let ws = null;
+		const noInterruptions = interaction.options.getBoolean('no_interruptions') || false;
 
 		// Configure session parameters for Voice Chat
 		const sessionParams = {
@@ -57,13 +63,18 @@ module.exports = {
 					// Update the session with current environment parameters
 					updateSessionParams(ws, sessionParams);
 					// Begin capturing user's audio and streaming to OpenAI
-					streamOpenAIAudio(ws, connection);
+					streamOpenAIAudio(ws, connection, noInterruptions);
 					// Begin streaming audio from OpenAI back to Discord
-					streamUserAudioToOpenAI(connection, ws);
+					streamUserAudioToOpenAI(connection, ws, noInterruptions);
 					// Set up a time limit for the voice chat if defined
 					setupVoiceChatTimeLimit(ws, connection, interaction, timeLimit);
 					// Request a greeting from OpenAI
 					injectMessageGetResponse(ws, process.env.OPENAI_VOICE_CHAT_GREETING);
+					
+					// Log if no_interruptions mode is enabled
+					if (noInterruptions) {
+						console.log("-- No interruptions mode enabled. Bot will finish speaking even when users talk over it.");
+					}
 				} catch (error) {
 					console.error('Error during WebSocket open event:', error);
 					followUpEphemeral(interaction, 'An error occurred while opening the connection. Please try again later and notify your bot host if this persists.');

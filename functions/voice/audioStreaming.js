@@ -174,6 +174,12 @@ function streamOpenAIAudio(ws, connection, noInterruptions = false) {
             if (serverMessage.type === "conversation.item.created") {
                 currentAudioState.responseItemId = serverMessage.item.id;
                 console.log(`-Tracking response item ID: ${currentAudioState.responseItemId}`);
+                /* If we are in no interruptions mode, we need to set the isPlaying flag to true
+                as soon as we get audio data arriving to prevent cutting off the audio stream before it has been
+                transcoded and played on Discord. */
+                if (noInterruptions) {
+                    currentAudioState.isPlaying = true;
+                }
             }
 
             // Check for truncation confirmation
@@ -265,6 +271,11 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false) {
         // Don't process new speakers if shutting down
         if (state.isVoiceChatShuttingDown) {
             console.log(`--User ${userId} started speaking, but voice chat is shutting down. Ignoring audio input.`);
+            return;
+        }
+        // If we are in no interruptions mode, just ignore this event.
+        if (noInterruptions && currentAudioState.isPlaying) {
+            console.log(`-No interruptions mode active - allowing AI to finish speaking`);
             return;
         }
 
