@@ -1,6 +1,7 @@
 services:
   app:
     container_name: F-S-AI-C-G-D-B
+    pull_policy: build
     build: .
     environment:
       DISCORD_TOKEN: "your-discord-token"
