@@ -1,5 +1,5 @@
 /* 
-* File: chatFunctions.js
+* File: audioStreaming.js
 * Author: TryFailTryAgain
 * Copyright (c) 2025. All rights reserved. For use in Open-Source projects this
 * may be freely copied or excerpted with credit to the author.
