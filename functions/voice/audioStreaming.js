@@ -182,7 +182,6 @@ function streamOpenAIAudio(ws, connection, noInterruptions = false) {
                     currentAudioState.isPlaying = true;
                 }
             }
-
             // Check for truncation confirmation
             if (serverMessage.type === "conversation.item.truncated") {
                 console.log(`-Server confirmed audio truncation for item ${serverMessage.item_id}`);
@@ -230,7 +229,6 @@ function streamOpenAIAudio(ws, connection, noInterruptions = false) {
                 // End the stream to ensure FFmpeg completes processing
                 if (audioStream) {
                     console.log("Ending audio stream to ffmpeg");
-                    //audioStream.end(); // Maybe need to end stream, may not?
                 }
                 console.log("-Response complete. Ready for next response.");
                 currentResponseId = null;
@@ -299,7 +297,7 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false) {
         // Pipe the opus stream through the decoder to get PCM16 @24000 Hz mono.
         const pcmStream = opusStream.pipe(decoderStream);
         let bufferData = Buffer.alloc(0);
-        const chunkSize = 3200; // Approximately 32KB.
+        const chunkSize = 5000; // Approximately 5KB.
 
         // Add user to active speakers list with timestamp
         activeSpeakers.set(userId, {
@@ -330,7 +328,6 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false) {
                     }));
                 }
                 // Truncate any currently playing audio when user starts speaking
-                console.log(currentAudioState.isPlaying, speakerData.firstPass);
                 if (currentAudioState.isPlaying && speakerData.firstPass) {
                     console.log(`--User started speaking - truncating current audio playback`);
                     truncateAudio(ws, currentAudioState.responseItemId);
@@ -371,45 +368,44 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false) {
         // Add error handlers to prevent crashes
         opusStream.on('error', (error) => {
             console.error(`Opus stream error for user ${userId}:`, error);
-            cleanup();
+            cleanup(userId);
         });
 
         decoderStream.on('error', (error) => {
             console.error(`Decoder stream error for user ${userId}:`, error);
-            cleanup();
+            cleanup(userId);
         });
 
         pcmStream.on('error', (error) => {
             console.error(`PCM stream error for user ${userId}:`, error);
-            cleanup();
+            cleanup(userId);
         });
-
-        // Clean up function to handle errors
-        function cleanup() {
-            if (activeSpeakers.has(userId)) {
-                const { streams } = activeSpeakers.get(userId);
-
-                try {
-                    if (streams.opusStream) streams.opusStream.destroy();
-                    if (streams.decoderStream) streams.decoderStream.destroy();
-                    if (streams.pcmStream) streams.pcmStream.destroy();
-                } catch (err) {
-                    console.error(`Error cleaning up streams for user ${userId}:`, err);
-                }
-
-                activeSpeakers.delete(userId);
-            }
-        }
     });
 
     // Handle stop speaking event to properly clean up resources
     connection.receiver.speaking.on("end", userId => {
-        if (activeSpeakers.has(userId)) {
-            console.log(`--User ${userId} stopped speaking. Waiting for audio processing to complete.`);
-            // Note: We don't delete from activeSpeakers here, letting the 'end' event on pcmStream handle it
-        }
+        console.log(`--User ${userId} stopped speaking. Cleaning up.`);
+        cleanup(userId);
     });
+
+    // Clean up function to handle errors
+    function cleanup(userId) {
+        if (activeSpeakers.has(userId)) {
+            console.log(`-Cleaning up resources for user ${userId}`);
+            const { streams } = activeSpeakers.get(userId);
+
+            try {
+                if (streams.opusStream) streams.opusStream.destroy();
+                if (streams.decoderStream) streams.decoderStream.destroy();
+                if (streams.pcmStream) streams.pcmStream.destroy();
+            } catch (err) {
+                console.error(`-Error cleaning up streams for user ${userId}:`, err);
+            }
+            activeSpeakers.delete(userId);
+        }
+    }
 }
+
 
 module.exports = {
     truncateAudio,
