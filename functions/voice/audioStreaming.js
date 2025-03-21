@@ -32,7 +32,7 @@ function truncateAudio(ws, itemId) {
         // 2. Mark as not playing to prevent further operations
         currentAudioState.isPlaying = false;
 
-        // 3. Send truncation event to OpenAI
+        // 3. Send truncation event to OpenAI with the audio end time
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
                 "type": "conversation.item.truncate",
@@ -113,8 +113,9 @@ function streamOpenAIAudio(ws, connection, noInterruptions = false) {
         audioStream = new PassThrough();
         currentAudioState.audioStream = audioStream;
 
-        // Set up a new FFmpeg process. This happens as a co-process so it can run asynchronously. Needs stereo output for Discord.
-        // Without stereo, Discord plays mono audio at 2x speed and twice the pitch.
+        /* Set up a new FFmpeg process. This happens as a co-process so it can run asynchronously. 
+           Needs stereo output for Discord. Without stereo, Discord plays mono audio at 2x 
+           speed and twice the pitch.*/
         ffmpeg = spawn('ffmpeg', [
             '-hide_banner',
             '-loglevel', 'error',
@@ -228,10 +229,10 @@ function streamOpenAIAudio(ws, connection, noInterruptions = false) {
 
                 // End the stream to ensure FFmpeg completes processing
                 if (audioStream) {
-                    console.log("Ending audio stream");
-                    audioStream.end();
+                    console.log("Ending audio stream to ffmpeg");
+                    //audioStream.end(); // Maybe need to end stream, may not?
                 }
-                console.log("-Response complete and stream cleaned up. Ready for next response.");
+                console.log("-Response complete. Ready for next response.");
                 currentResponseId = null;
             }
 
@@ -287,20 +288,6 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false) {
 
         console.log(`--User ${userId} started speaking`);
 
-        // Cancel any in-progress response when a user starts speaking
-        if (currentAudioState.responseItemId) {
-            console.log(`--Cancelling any in-progress response as the user has started speaking`);
-            ws.send(JSON.stringify({
-                type: 'response.cancel'
-            }));
-        }
-
-        // Truncate any currently playing audio when user starts speaking
-        if (currentAudioState.isPlaying && currentAudioState.responseItemId) {
-            console.log(`--User started speaking - truncating current audio playback`);
-            truncateAudio(ws, currentAudioState.responseItemId);
-        }
-
         // Create a fresh decoder stream for each speaking session
         const decoderStream = new OpusDecoderStream();
 
@@ -312,13 +299,14 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false) {
         // Pipe the opus stream through the decoder to get PCM16 @24000 Hz mono.
         const pcmStream = opusStream.pipe(decoderStream);
         let bufferData = Buffer.alloc(0);
-        const chunkSize = 32000; // Approximately 32KB.
+        const chunkSize = 3200; // Approximately 32KB.
 
         // Add user to active speakers list with timestamp
         activeSpeakers.set(userId, {
             timestamp: Date.now(),
             streams: { opusStream, decoderStream, pcmStream },
-            totalBytesProcessed: 0
+            firstPass: true,
+            interruptionDelayTime: Date.now()
         });
 
         pcmStream.on('data', chunk => {
@@ -326,14 +314,29 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false) {
                 return; // Skip processing if no longer active
             }
 
-            // Update total bytes processed for debugging
+            // Set the speaker
             const speakerData = activeSpeakers.get(userId);
-            speakerData.totalBytesProcessed += chunk.length;
 
             bufferData = Buffer.concat([bufferData, chunk]);
 
-            // Send data when we reach the chunk size
-            while (bufferData.length >= chunkSize) {
+            /* Send data, cancel any in-progress response from OpenAI, and truncate the past 
+            response if needed when we reach the chunk size and the interruption delay has passed */
+            while (bufferData.length >= chunkSize && ((Date.now() - speakerData.interruptionDelayTime) > process.env.VOICE_CHAT_INTERRUPTION_DELAY)) {
+                // Cancel any in-progress response when a user starts speaking
+                if (currentAudioState.responseItemId && speakerData.firstPass && currentAudioState.isPlaying) {
+                    console.log(`--Cancelling any in-progress response as the user has started speaking past the interruption delay`);
+                    ws.send(JSON.stringify({
+                        type: 'response.cancel'
+                    }));
+                }
+                // Truncate any currently playing audio when user starts speaking
+                console.log(currentAudioState.isPlaying, speakerData.firstPass);
+                if (currentAudioState.isPlaying && speakerData.firstPass) {
+                    console.log(`--User started speaking - truncating current audio playback`);
+                    truncateAudio(ws, currentAudioState.responseItemId);
+                }
+                speakerData.firstPass = false;
+                // Finish by sending the chunk
                 const sendChunk = bufferData.slice(0, chunkSize);
                 bufferData = bufferData.slice(chunkSize);
 
@@ -349,10 +352,10 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false) {
         pcmStream.on('end', () => {
             if (activeSpeakers.has(userId)) {
                 const speakerData = activeSpeakers.get(userId);
-                console.log(`--User ${userId} finished speaking (processed ${speakerData.totalBytesProcessed} bytes total)`);
+                console.log(`--User ${userId} finished speaking`);
 
-                // Send any remaining buffer data
-                if (bufferData.length > 0) {
+                // Send any remaining buffer data if the interruption delay has passed
+                if (bufferData.length > 0 && ((Date.now() - speakerData.interruptionDelayTime) > process.env.VOICE_CHAT_INTERRUPTION_DELAY)) {
                     ws.send(JSON.stringify({
                         type: 'input_audio_buffer.append',
                         audio: bufferData.toString('base64')
