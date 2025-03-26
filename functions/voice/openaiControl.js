@@ -90,9 +90,19 @@ function injectMessage(ws, message) {
     console.log("-Injected message into conversation");
 }
 
+// Cancel an in-progress response
+function cancelResponse(ws) {
+    const cancelEvent = {
+        type: 'response.cancel'
+    };
+    ws.send(JSON.stringify(cancelEvent));
+    console.log("-Sent response.cancel event to server");
+}
+
 module.exports = {
     setupRealtimeVoiceWS,
     updateSessionParams,
     injectMessageGetResponse,
-    injectMessage
+    injectMessage,
+    cancelResponse // Export the new function
 };

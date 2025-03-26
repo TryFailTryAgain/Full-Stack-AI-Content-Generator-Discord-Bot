@@ -10,7 +10,7 @@ const { OpusEncoder } = require('@discordjs/opus');
 const { spawn } = require('child_process');
 const WebSocket = require('ws');
 const state = require('./voiceGlobalState.js');
-const { injectMessage } = require('./openaiControl');
+const { injectMessage, cancelResponse } = require('./openaiControl');
 const { Client } = require('discord.js');
 
 // Truncate currently playing audio
@@ -174,9 +174,9 @@ function streamOpenAIAudio(ws, connection, noInterruptions = false) {
             const serverMessage = JSON.parse(message);
 
             // Track response item ID when we get it
-            if (serverMessage.type === "response.created") {
-                currentAudioState.responseItemId = serverMessage.response.id;
-                console.log(`-Tracking response item ID: ${currentAudioState.responseItemId}`);
+            if (serverMessage.type === "conversation.item.created" && serverMessage.item.role === "assistant") {
+                currentAudioState.responseItemId = serverMessage.item.id;
+                console.log(`-Tracking response item ID: ${currentAudioState.responseItemId}, role: ${serverMessage.item.role}`);
                 /* If we are in no interruptions mode, we need to set the isPlaying flag to true
                 as soon as we get audio data arriving to prevent cutting off the audio stream before it has been
                 transcoded and played on Discord. */
@@ -324,9 +324,7 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, intera
                 // Cancel any in-progress response when a user starts speaking
                 if (currentAudioState.responseItemId && speakerData.firstPass && currentAudioState.isPlaying) {
                     console.log(`--Cancelling any in-progress response as the user has started speaking past the interruption delay`);
-                    ws.send(JSON.stringify({
-                        type: 'response.cancel'
-                    }));
+                    cancelResponse(ws); // Use the new function
                     truncateAudio(ws, currentAudioState.responseItemId);
                 }
                 if (speakerData.firstPass) {
