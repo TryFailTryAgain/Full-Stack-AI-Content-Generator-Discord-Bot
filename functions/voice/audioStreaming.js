@@ -10,6 +10,8 @@ const { OpusEncoder } = require('@discordjs/opus');
 const { spawn } = require('child_process');
 const WebSocket = require('ws');
 const state = require('./voiceGlobalState.js');
+const { injectMessage } = require('./openaiControl');
+const { Client } = require('discord.js');
 
 // Truncate currently playing audio
 function truncateAudio(ws, itemId) {
@@ -244,7 +246,7 @@ function streamOpenAIAudio(ws, connection, noInterruptions = false) {
 
 
 // Stream user audio from Discord to OpenAI
-function streamUserAudioToOpenAI(connection, ws, noInterruptions = false) {
+function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, interaction) {
     const { EndBehaviorType } = require('@discordjs/voice');
     // Transform stream that decodes each Opus packet to PCM16 at 24000Hz mono.
     class OpusDecoderStream extends Transform {
@@ -318,6 +320,7 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false) {
 
             /* Send data, cancel any in-progress response from OpenAI, and truncate the past 
             response if needed when we reach the chunk size and the interruption delay has passed */
+            while (bufferData.length && ((Date.now() - speakerData.interruptionDelayTime) > process.env.VOICE_CHAT_INTERRUPTION_DELAY)) {
                 // Cancel any in-progress response when a user starts speaking
                 if (currentAudioState.responseItemId && speakerData.firstPass && currentAudioState.isPlaying) {
                     console.log(`--Cancelling any in-progress response as the user has started speaking past the interruption delay`);
@@ -326,6 +329,11 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false) {
                     }));
                     truncateAudio(ws, currentAudioState.responseItemId);
                 }
+                if (speakerData.firstPass) {
+                   const displayName = interaction.guild.members.cache.get(userId).displayName;
+                    injectMessage(ws, `${displayName}, is now speaking.`);
+                }
+                // Disable fir first pass
                 speakerData.firstPass = false;
                 // Finish by sending the chunk
                 const sendChunk = bufferData;

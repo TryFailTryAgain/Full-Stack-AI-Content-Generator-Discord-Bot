@@ -32,6 +32,10 @@ module.exports = {
 		const timeLimit = process.env.VOICE_CHAT_TIME_LIMIT;
 		let ws = null;
 		const noInterruptions = interaction.options.getBoolean('no_interruptions') || false;
+		const channel = interaction.options.getChannel('channel');
+		// Build user list from the voice channel
+		const userList = Array.from(channel.members.values()).map(member => member.nickname).join(', ');
+		let connection;
 
 		// Configure session parameters for Voice Chat
 		const sessionParams = {
@@ -40,9 +44,6 @@ module.exports = {
 			voice: process.env.OPENAI_VOICE_CHAT_VOICE,
 			max_response_output_tokens: process.env.OPENAI_VOICE_CHAT_MAX_TOKENS
 		};
-
-		const channel = interaction.options.getChannel('channel');
-		let connection;
 
 		// Join the voice channel
 		try {
@@ -65,11 +66,11 @@ module.exports = {
 					// Begin capturing user's audio and streaming to OpenAI
 					streamOpenAIAudio(ws, connection, noInterruptions);
 					// Begin streaming audio from OpenAI back to Discord
-					streamUserAudioToOpenAI(connection, ws, noInterruptions);
+					streamUserAudioToOpenAI(connection, ws, noInterruptions, interaction);
 					// Set up a time limit for the voice chat if defined
 					setupVoiceChatTimeLimit(ws, connection, interaction, timeLimit);
-					// Request a greeting from OpenAI
-					injectMessageGetResponse(ws, process.env.OPENAI_VOICE_CHAT_GREETING);
+					// Request a greeting from OpenAI with list of voice users
+					injectMessageGetResponse(ws, process.env.OPENAI_VOICE_CHAT_GREETING + "\n Here is a list of everyone's username that is currently in the voice-chat: " + userList);
 					
 					// Log if no_interruptions mode is enabled
 					if (noInterruptions) {
@@ -86,7 +87,7 @@ module.exports = {
 						const excludedTypes = [
 							"response.audio.delta", "response.audio_transcript.delta", "response.content_part.done", "response.audio.done",
 							"response.output_item.done", "response.content_part.added", "response.output_item.added", "rate_limits.updated",
-							"conversation.item.created", "input_audio_buffer.speech_stopped"
+							"input_audio_buffer.speech_stopped"
 						];
 						if (!excludedTypes.includes(serverMessage.type)) {
 							console.log("Server message:", serverMessage);

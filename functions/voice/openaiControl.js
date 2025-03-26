@@ -71,8 +71,28 @@ function injectMessageGetResponse(ws, instruction) {
     console.log("-Requested audio response with instruction from server");
 }
 
+// Inject a text message into the history without inducing inference
+function injectMessage(ws, message) {
+    const conversationItem = {
+        type: "conversation.item.create",
+        item: {
+            type: "message",
+            role: "user",
+            content:[
+                {
+                    type: "input_text",
+                    text: message
+                }
+            ]
+        }
+    };
+    ws.send(JSON.stringify(conversationItem));
+    console.log("-Injected message into conversation");
+}
+
 module.exports = {
     setupRealtimeVoiceWS,
     updateSessionParams,
-    injectMessageGetResponse
+    injectMessageGetResponse,
+    injectMessage
 };
