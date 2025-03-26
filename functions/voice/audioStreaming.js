@@ -11,7 +11,7 @@ const { spawn } = require('child_process');
 const WebSocket = require('ws');
 const state = require('./voiceGlobalState.js');
 const { injectMessage, cancelResponse } = require('./openaiControl');
-const { Client } = require('discord.js');
+const { filterCheckThenFilterString } = require('../helperFunctions.js');
 
 // Truncate currently playing audio
 function truncateAudio(ws, itemId) {
@@ -327,9 +327,15 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, intera
                     cancelResponse(ws); // Use the new function
                     truncateAudio(ws, currentAudioState.responseItemId);
                 }
+                // Inject message via text who is about to speak
                 if (speakerData.firstPass) {
-                   const displayName = interaction.guild.members.cache.get(userId).displayName;
-                    injectMessage(ws, `${displayName}, is now speaking.`);
+                    filterCheckThenFilterString(interaction.guild.members.cache.get(userId).displayName)
+                        .then(displayName => {
+                            injectMessage(ws, `${displayName}, is now speaking.`);
+                        })
+                        .catch(error => {
+                            console.error('Error filtering display name:', error);
+                        });
                 }
                 // Disable fir first pass
                 speakerData.firstPass = false;
