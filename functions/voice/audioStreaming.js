@@ -172,8 +172,8 @@ function streamOpenAIAudio(ws, connection, noInterruptions = false) {
             const serverMessage = JSON.parse(message);
 
             // Track response item ID when we get it
-            if (serverMessage.type === "conversation.item.created") {
-                currentAudioState.responseItemId = serverMessage.item.id;
+            if (serverMessage.type === "response.created") {
+                currentAudioState.responseItemId = serverMessage.response.id;
                 console.log(`-Tracking response item ID: ${currentAudioState.responseItemId}`);
                 /* If we are in no interruptions mode, we need to set the isPlaying flag to true
                 as soon as we get audio data arriving to prevent cutting off the audio stream before it has been
@@ -297,7 +297,6 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false) {
         // Pipe the opus stream through the decoder to get PCM16 @24000 Hz mono.
         const pcmStream = opusStream.pipe(decoderStream);
         let bufferData = Buffer.alloc(0);
-        const chunkSize = 5000; // Approximately 5KB.
 
         // Add user to active speakers list with timestamp
         activeSpeakers.set(userId, {
@@ -314,52 +313,36 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false) {
 
             // Set the speaker
             const speakerData = activeSpeakers.get(userId);
-
+            // Combine any past unsent data with the new chunk
             bufferData = Buffer.concat([bufferData, chunk]);
 
             /* Send data, cancel any in-progress response from OpenAI, and truncate the past 
             response if needed when we reach the chunk size and the interruption delay has passed */
-            while (bufferData.length >= chunkSize && ((Date.now() - speakerData.interruptionDelayTime) > process.env.VOICE_CHAT_INTERRUPTION_DELAY)) {
                 // Cancel any in-progress response when a user starts speaking
                 if (currentAudioState.responseItemId && speakerData.firstPass && currentAudioState.isPlaying) {
                     console.log(`--Cancelling any in-progress response as the user has started speaking past the interruption delay`);
                     ws.send(JSON.stringify({
                         type: 'response.cancel'
                     }));
-                }
-                // Truncate any currently playing audio when user starts speaking
-                if (currentAudioState.isPlaying && speakerData.firstPass) {
-                    console.log(`--User started speaking - truncating current audio playback`);
                     truncateAudio(ws, currentAudioState.responseItemId);
                 }
                 speakerData.firstPass = false;
                 // Finish by sending the chunk
-                const sendChunk = bufferData.slice(0, chunkSize);
-                bufferData = bufferData.slice(chunkSize);
+                const sendChunk = bufferData;
+                bufferData = Buffer.alloc(0);
 
                 ws.send(JSON.stringify({
                     type: 'input_audio_buffer.append',
                     audio: sendChunk.toString('base64')
                 }));
-                console.log(`-Sent input_audio_buffer.append chunk: ${chunkSize} bytes`);
+                console.log(`-Sent input_audio_buffer.append chunk: }${sendChunk.length} bytes`);
             }
         });
 
         // When the stream ends, send any leftover data.
         pcmStream.on('end', () => {
             if (activeSpeakers.has(userId)) {
-                const speakerData = activeSpeakers.get(userId);
                 console.log(`--User ${userId} finished speaking`);
-
-                // Send any remaining buffer data if the interruption delay has passed
-                if (bufferData.length > 0 && ((Date.now() - speakerData.interruptionDelayTime) > process.env.VOICE_CHAT_INTERRUPTION_DELAY)) {
-                    ws.send(JSON.stringify({
-                        type: 'input_audio_buffer.append',
-                        audio: bufferData.toString('base64')
-                    }));
-                    console.log(`-Sending final input_audio_buffer.append chunk: ${bufferData.length} bytes`);
-                }
-
                 // Clean up and remove from active speakers
                 activeSpeakers.delete(userId);
             }
