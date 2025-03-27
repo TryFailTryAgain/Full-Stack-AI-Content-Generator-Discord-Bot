@@ -5,6 +5,10 @@
 <p align="center"><img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Content-Generator-Discord-Bot/blob/main/assets/image-example.png"width=22%> <img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Meme-Generator-Discord-Bot/blob/main/assets/example2.png" width=30%><img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Content-Generator-Discord-Bot/blob/main/assets/image-refinement-example.png" width=45%></p>
 
 ## Features
+  - Real-time AI voice chat in Discord voice channels
+    - Join any voice channel and have natural, real-time voice-voice conversations with openAI's realtime models
+    - Understands tone and inflection naturally, supports both interruptible ai by talking over it and non-interrupting modes for different conversation styles or large group calls
+    - Set time limits for voice chat sessions to manage resource usage
   - Use Flux.1, Dall-E 3, Stability.AI, and more via Replicate api
     - Natural language prompting allows conversational requests to make great images prompts after prepossessing them with OpenAI. ex input: "Make a photo of a cactus look realistic but add a baseball hat". This feature is disabled for more advanced image models as they already have a better understanding of the users intent.
     - Regenerate, Upscale, and iterative on generated images with easy to use buttons
@@ -34,6 +38,10 @@
   - Provides fine grain control over all aspects of image creation including model selection, image dimensions, and advanced parameters. Supports uploading images for image-to-image generation and more.
 - /chat
   - A chatbot that can be activated with the channel that the command is called from. It will be active and respond to any users messages until the set duration is over or the command is called again to end it.
+- /voice-chat
+  - Join a specified voice channel to enable real-time voice conversations with an AI assistant
+  - Optional 'no_interruptions' mode allows the AI to finish speaking even when users talk over it
+  - Automatically detects and recognizes users in the voice channel
 - /ad-lib_story
   - This will summon chatGPT to create a story, with or without a user prompt to guide it, that then sends a modal form for the user to fill out before turning the ad-libed story back over to them
 
