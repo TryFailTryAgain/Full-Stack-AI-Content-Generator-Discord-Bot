@@ -73,7 +73,7 @@ module.exports = {
 					setupVoiceChatTimeLimit(ws, connection, interaction, timeLimit);
 					// Request a greeting from OpenAI with list of voice users
 					injectMessageGetResponse(ws, process.env.OPENAI_VOICE_CHAT_GREETING + "\n Here is a list of everyone's username that is currently in the voice-chat: " + userList);
-					
+
 					// Log if no_interruptions mode is enabled
 					if (noInterruptions) {
 						console.log("-- No interruptions mode enabled. Bot will finish speaking even when users talk over it.");
@@ -87,9 +87,7 @@ module.exports = {
 					ws.on("message", message => {
 						const serverMessage = JSON.parse(message);
 						const excludedTypes = [
-							"response.audio.delta", "response.audio_transcript.delta", "response.content_part.done", "response.audio.done",
-							"response.output_item.done", "response.content_part.added", "response.output_item.added", "rate_limits.updated",
-							"input_audio_buffer.speech_stopped"
+							"response.audio.delta", "response.audio_transcript.delta"
 						];
 						if (!excludedTypes.includes(serverMessage.type)) {
 							console.log("Server message:", serverMessage);
