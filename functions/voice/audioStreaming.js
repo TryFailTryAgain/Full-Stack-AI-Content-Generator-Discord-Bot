@@ -10,7 +10,6 @@ const { OpusEncoder } = require('@discordjs/opus');
 const { spawn } = require('child_process');
 const WebSocket = require('ws');
 const state = require('./voiceGlobalState.js');
-const { injectMessage, cancelResponse } = require('./openaiControl');
 const { filterCheckThenFilterString } = require('../helperFunctions.js');
 
 // Truncate currently playing audio
@@ -248,6 +247,8 @@ function streamOpenAIAudio(ws, connection, noInterruptions = false) {
 // Stream user audio from Discord to OpenAI
 function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, interaction) {
     const { EndBehaviorType } = require('@discordjs/voice');
+    const { injectMessage, cancelResponse, startSilenceStream, stopSilenceStream } = require('./openaiControl');
+
     // Transform stream that decodes each Opus packet to PCM16 at 24000Hz mono.
     class OpusDecoderStream extends Transform {
         constructor() {
@@ -268,6 +269,9 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, intera
     const activeSpeakers = new Map();
     const currentAudioState = state.currentAudioState;
 
+    // Local variable to track the silence interval ID
+    let silenceIntervalId = null;
+
     connection.receiver.speaking.on("start", userId => {
         // Don't process new speakers if shutting down
         if (state.isVoiceChatShuttingDown) {
@@ -287,6 +291,11 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, intera
         }
 
         console.log(`--User ${userId} started speaking`);
+
+        // Someone is speaking, stop any empty audio stream from a previous speaker if there was one
+        if (silenceIntervalId) {
+            silenceIntervalId = stopSilenceStream(silenceIntervalId);
+        }
 
         // Create a fresh decoder stream for each speaking session
         const decoderStream = new OpusDecoderStream();
@@ -337,7 +346,6 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, intera
                             console.error('Error filtering display name:', error);
                         });
                 }
-                // Disable fir first pass
                 speakerData.firstPass = false;
                 // Finish by sending the chunk
                 const sendChunk = bufferData;
@@ -347,16 +355,7 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, intera
                     type: 'input_audio_buffer.append',
                     audio: sendChunk.toString('base64')
                 }));
-                console.log(`-Sent input_audio_buffer.append chunk: }${sendChunk.length} bytes`);
-            }
-        });
-
-        // When the stream ends, send any leftover data.
-        pcmStream.on('end', () => {
-            if (activeSpeakers.has(userId)) {
-                console.log(`--User ${userId} finished speaking`);
-                // Clean up and remove from active speakers
-                activeSpeakers.delete(userId);
+                console.log(`-Sent input_audio_buffer.append chunk: ${sendChunk.length} bytes`);
             }
         });
 
@@ -381,9 +380,22 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, intera
     connection.receiver.speaking.on("end", userId => {
         console.log(`--User ${userId} stopped speaking. Cleaning up.`);
         cleanup(userId);
+
+        // Check if any users are still speaking
+        if (activeSpeakers.size === 0) {
+            // No one is speaking, start a stream of 5 seconds of silence to allow OpenAI to process semantic VAD
+            console.log(`-No one is currently speaking, starting silence stream`);
+
+            // If we already have a silence interval running, stop it first
+            if (silenceIntervalId) {
+                silenceIntervalId = stopSilenceStream(silenceIntervalId);
+            }
+            // Start a new silence stream and store the interval ID
+            silenceIntervalId = startSilenceStream(ws);
+        }
     });
 
-    // Clean up function to handle errors
+    // Clean up function ensure we track and clean up resources for each user
     function cleanup(userId) {
         if (activeSpeakers.has(userId)) {
             console.log(`-Cleaning up resources for user ${userId}`);

@@ -36,6 +36,10 @@ function updateSessionParams(ws, params) {
                 instructions: params.instructions,
                 temperature: parseFloat(params.temperature),
                 voice: params.voice,
+                turn_detection: {
+                    type: "semantic_vad", // Use semantic VAD for turn detection
+                    eagerness: process.env.OPENAI_VOICE_CHAT_RESPONSE_EAGERNESS
+                },
                 max_response_output_tokens: params.max_response_output_tokens,
                 input_audio_transcription: {
                     "model": "whisper-1"
@@ -49,6 +53,10 @@ function updateSessionParams(ws, params) {
                 instructions: params.instructions,
                 temperature: parseFloat(params.temperature),
                 voice: params.voice,
+                turn_detection: {
+                    type: "semantic_vad", // Use semantic VAD for turn detection
+                    eagerness: process.env.OPENAI_VOICE_CHAT_RESPONSE_EAGERNESS
+                },
                 max_response_output_tokens: params.max_response_output_tokens
             }
         };
@@ -57,6 +65,48 @@ function updateSessionParams(ws, params) {
     ws.send(JSON.stringify(event));
 }
 
+// Start sending empty audio packets to keep the semantic VAD processing correctly
+function startSilenceStream(ws, silenceInterval = 100) {
+    // Create a function to send silence audio packets to OpenAI
+    const sendSilencePacket = () => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            // Create a small silent PCM buffer (16-bit samples at 24kHz)
+            // For 100ms of silence: 24000 samples/sec * 0.1 sec * 2 bytes/sample = 4800 bytes
+            const silenceBuffer = Buffer.alloc(4800, 0);
+
+            // Send silence as base64-encoded audio data
+            ws.send(JSON.stringify({
+                type: 'input_audio_buffer.append',
+                audio: silenceBuffer.toString('base64')
+            }));
+        }
+    };
+
+    // Start sending silence packets at regular intervals
+    const intervalId = setInterval(sendSilencePacket, silenceInterval);
+
+    // Set a timeout to automatically stop the silence after 5 seconds
+    const silenceTimeout = setTimeout(() => {
+        if (intervalId) {
+            console.log("-Silence stream timeout reached (5 seconds), stopping");
+            clearInterval(intervalId);
+        }
+    }, 5000);
+
+    console.log("-Started silence stream (will auto-stop after 5 seconds)");
+
+    // Return the interval ID so it can be passed to stopSilenceStream
+    return intervalId;
+}
+
+// Stop sending silence packets
+function stopSilenceStream(intervalId) {
+    if (intervalId) {
+        clearInterval(intervalId);
+        console.log("-Stopped silence stream");
+    }
+    return null;
+}
 
 // Request a response from OpenAI with specific instructions
 function injectMessageGetResponse(ws, instruction) {
@@ -78,7 +128,7 @@ function injectMessage(ws, message) {
         item: {
             type: "message",
             role: "user",
-            content:[
+            content: [
                 {
                     type: "input_text",
                     text: message
@@ -104,5 +154,7 @@ module.exports = {
     updateSessionParams,
     injectMessageGetResponse,
     injectMessage,
-    cancelResponse // Export the new function
+    cancelResponse,
+    startSilenceStream,
+    stopSilenceStream
 };
