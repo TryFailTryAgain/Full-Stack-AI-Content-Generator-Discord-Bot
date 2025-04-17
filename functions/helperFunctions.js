@@ -41,6 +41,9 @@ async function filterString(input) {
 }
 
 async function filterCheckThenFilterString(input) {
+    if (!input){
+        return "";
+    }
     try {
         const isFilterEnabled = await filterCheck();
         if (isFilterEnabled) {
