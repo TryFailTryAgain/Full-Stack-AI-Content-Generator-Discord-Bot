@@ -34,7 +34,60 @@ async function setupRealtimeVoiceWS(interaction) {
             if (process.env.ADVCONF_OPENAI_VOICE_CHAT_SYSTEM_LOGGING === 'true') {
                 setupWsMessageLogging(ws);
             }
+            // listener for tool calls
+            toolCallListener(ws, interaction); // Set up tool call listener with interaction
+            resolve(ws); // Resolve the promise with the WebSocket instance
         });
+    });
+}
+
+async function toolCallListener(ws, interaction) {
+    const { generate_image_tool } = require('../tools/imageTool.js');
+    const { AttachmentBuilder } = require('discord.js');
+
+    ws.on('message', (message) => {
+        const serverMessage = JSON.parse(message);
+        // Check if the message is a finished response containing any function call
+        if (
+            serverMessage.type === 'response.done' &&
+            Array.isArray(serverMessage.response?.output) &&
+            serverMessage.response.output.some(item => item.type === 'function_call')
+        ) {
+
+            if (process.env.ADVCONF_OPENAI_VOICE_CHAT_SYSTEM_LOGGING === 'true') {
+                console.log("-Tool call requested");
+                console.log(serverMessage.response.output[0]);
+            }
+
+            // for each output item, process the function call
+            serverMessage.response.output.forEach(async (functionCall) => {
+                if (functionCall.type === "function_call") {
+                    // Route to the correct tool
+                    switch (functionCall.name) {
+                        case 'generate_image':
+                            console.log("-Tool call function executed: generate_image");
+                            try {
+                                // Generate the image using the tool            
+                                const imageBuffer = await generate_image_tool(functionCall, interaction);
+
+                                // Create an attachment from the image buffer
+                                const attachment = new AttachmentBuilder(imageBuffer[0]);
+                                // Send the generated image to the text channel where the voice command was initiated
+                                await interaction.channel.send({
+                                    content: "Generated image from voice request",
+                                    files: [attachment]
+                                });
+                                injectMessageGetResponse(ws, "If this is the first image the user has asked for, you should let the user know that the image has now been generated and can be viewed from the discord channel you were summoned from. If this is not the first image they asked for, just note that the image was successfully made.");
+                            } catch (error) {
+                                console.error("Error processing generate_image tool call:", error);
+                                injectMessageGetResponse(ws, "Instruct to the user: Sorry, I encountered an error generating the image. I dont fully know when went wrong, but I can try again with that generation request if you would like me to.");
+                            }
+                            break;
+                        // More tools soon
+                    }
+                }
+            });
+        }
     });
 }
 
@@ -71,6 +124,7 @@ function updateSessionParams(ws, params) {
                 input_audio_transcription: {
                     "model": "whisper-1"
                 },
+                tools: [params.tools]
             }
         };
     } else {
@@ -84,7 +138,8 @@ function updateSessionParams(ws, params) {
                     type: "semantic_vad", // Use semantic VAD for turn detection
                     eagerness: process.env.OPENAI_VOICE_CHAT_RESPONSE_EAGERNESS
                 },
-                max_response_output_tokens: params.max_response_output_tokens
+                max_response_output_tokens: params.max_response_output_tokens,
+                tools: [params.tools]
             }
         };
     }

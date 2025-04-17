@@ -8,6 +8,7 @@
 // Flag to track if voice chat is in shutdown mode
 let isVoiceChatShuttingDown = false;
 
+
 // Global variables to track audio state
 const currentAudioState = {
     responseItemId: null,
