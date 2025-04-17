@@ -11,6 +11,39 @@ const { spawn } = require('child_process');
 const WebSocket = require('ws');
 const state = require('./voiceGlobalState.js');
 const { filterCheckThenFilterString } = require('../helperFunctions.js');
+const { injectMessage, cancelResponse, startSilenceStream, stopSilenceStream } = require('./openaiControl');
+
+// Custom PCM-16LE mono sum-and-average mixer
+class PCMMonoMixer {
+    constructor(ws) { this.ws = ws; this.buffers = new Map(); }
+    updateBuffer(userId, chunk) {
+        const prev = this.buffers.get(userId) || Buffer.alloc(0);
+        this.buffers.set(userId, Buffer.concat([prev, chunk]));
+        this.mixAndSend();
+    }
+    removeBuffer(userId) { this.buffers.delete(userId); }
+    mixAndSend() {
+        if (!this.ws || this.buffers.size === 0) return;
+        const bufs = Array.from(this.buffers.values());
+        const maxLen = Math.max(...bufs.map(b => b.length));
+        const mixed = Buffer.alloc(maxLen);
+        const count = bufs.length;
+        for (let i = 0; i < maxLen; i += 2) {
+            let sum = 0;
+            for (const buf of bufs) {
+                sum += (i < buf.length ? buf.readInt16LE(i) : 0);
+            }
+            let avg = sum / count;
+            avg = Math.max(-32768, Math.min(32767, avg));
+            mixed.writeInt16LE(avg, i);
+        }
+        this.ws.send(JSON.stringify({ type: 'input_audio_buffer.append', audio: mixed.toString('base64') }));
+        // reset buffers
+        for (const key of this.buffers.keys()) {
+            this.buffers.set(key, Buffer.alloc(0));
+        }
+    }
+}
 
 // Truncate currently playing audio
 function truncateAudio(ws, itemId) {
@@ -167,76 +200,70 @@ function streamOpenAIAudio(ws, connection, noInterruptions = false) {
         console.log(`-Created new audio pipeline for ${responseId}`);
     };
 
-    // Listen for WebSocket messages
+    // Listen for WebSocket messages that contain audio related data
     ws.on("message", message => {
-        try {
-            const serverMessage = JSON.parse(message);
-
+        const serverMessage = JSON.parse(message);
+        if (serverMessage.type === "conversation.item.created" && serverMessage.item.role === "assistant") {
             // Track response item ID when we get it
-            if (serverMessage.type === "conversation.item.created" && serverMessage.item.role === "assistant") {
-                currentAudioState.responseItemId = serverMessage.item.id;
-                console.log(`-Tracking response item ID: ${currentAudioState.responseItemId}, role: ${serverMessage.item.role}`);
-                /* If we are in no interruptions mode, we need to set the isPlaying flag to true
-                as soon as we get audio data arriving to prevent cutting off the audio stream before it has been
-                transcoded and played on Discord. */
-                if (noInterruptions) {
-                    currentAudioState.isPlaying = true;
-                }
+            currentAudioState.responseItemId = serverMessage.item.id;
+            console.log(`-Tracking response item ID: ${currentAudioState.responseItemId}, role: ${serverMessage.item.role}`);
+            /* If we are in no interruptions mode, we need to set the isPlaying flag to true
+            as soon as we get audio data arriving to prevent cutting off the audio stream before it has been
+            transcoded and played on Discord. */
+            if (noInterruptions) {
+                currentAudioState.isPlaying = true;
             }
-            // Check for truncation confirmation
-            if (serverMessage.type === "conversation.item.truncated") {
-                console.log(`-Server confirmed audio truncation for item ${serverMessage.item_id}`);
+        }
+        // Check for truncation confirmation
+        if (serverMessage.type === "conversation.item.truncated") {
+            console.log(`-Server confirmed audio truncation for item ${serverMessage.item_id}`);
+        }
+
+        // Handle audio delta messages with error handling
+        if (serverMessage.type === "response.audio.delta" && serverMessage.delta) {
+            const audioChunk = Buffer.from(serverMessage.delta, 'base64');
+
+            // Case 1: No active pipeline yet for this response
+            if (currentResponseId === null || currentAudioState.responseItemId !== currentResponseId) {
+                setupNewPipeline(currentAudioState.responseItemId);
+                audioBuffer = Buffer.concat([audioBuffer, audioChunk]);
             }
 
-            // Handle audio delta messages with error handling
-            if (serverMessage.type === "response.audio.delta" && serverMessage.delta) {
-                const audioChunk = Buffer.from(serverMessage.delta, 'base64');
-
-                // Case 1: No active pipeline yet for this response
-                if (currentResponseId === null || currentAudioState.responseItemId !== currentResponseId) {
-                    setupNewPipeline(currentAudioState.responseItemId);
+            // Case 2: Active pipeline already playing
+            else if (audioStream) {
+                try {
+                    console.log(`-Writing ${audioChunk.length} bytes of audio to stream`);
                     audioBuffer = Buffer.concat([audioBuffer, audioChunk]);
-                }
-
-                // Case 2: Active pipeline already playing
-                else if (audioStream) {
-                    try {
-                        console.log(`-Writing ${audioChunk.length} bytes of audio to stream`);
-                        audioBuffer = Buffer.concat([audioBuffer, audioChunk]);
-                        if (audioBuffer.length > 0) {
-                            // Only write if the stream is still writable
-                            if (audioStream && !audioStream.destroyed && audioStream.writable) {
-                                audioStream.write(audioBuffer);
-                            } else {
-                                console.log("-Skipping write to destroyed/closed stream");
-                            }
-                            audioBuffer = Buffer.alloc(0);
+                    if (audioBuffer.length > 0) {
+                        // Only write if the stream is still writable
+                        if (audioStream && !audioStream.destroyed && audioStream.writable) {
+                            audioStream.write(audioBuffer);
+                        } else {
+                            console.log("-Skipping write to destroyed/closed stream");
                         }
-                    } catch (err) {
-                        console.error("Error writing to audio stream:", err);
-                        // Don't rethrow - just log and continue
+                        audioBuffer = Buffer.alloc(0);
                     }
+                } catch (err) {
+                    console.error("Error writing to audio stream:", err);
+                    // Don't rethrow - just log and continue
                 }
             }
+        }
 
-            // End of response - clean up
-            if (serverMessage.type === "response.done") {
-                // Ensure we finish writing any buffered data
-                if (audioBuffer.length > 0) {
-                    console.log(`-Writing remaining ${audioBuffer.length} bytes of audio to stream`);
-                    audioStream.write(audioBuffer);
-                }
-
-                // End the stream to ensure FFmpeg completes processing
-                if (audioStream) {
-                    console.log("Ending audio stream to ffmpeg");
-                }
-                console.log("-Response complete. Ready for next response.");
-                currentResponseId = null;
+        // End of response - clean up
+        if (serverMessage.type === "response.done") {
+            // Ensure we finish writing any buffered data
+            if (audioBuffer.length > 0) {
+                console.log(`-Writing remaining ${audioBuffer.length} bytes of audio to stream`);
+                audioStream.write(audioBuffer);
             }
 
-        } catch (err) {
-            console.error("Error while receiving audio:", err);
+            // End the stream to ensure FFmpeg completes processing
+            if (audioStream) {
+                console.log("Ending audio stream to ffmpeg");
+            }
+            console.log("-Response complete. Ready for next response.");
+            currentResponseId = null;
         }
     });
 
@@ -247,7 +274,6 @@ function streamOpenAIAudio(ws, connection, noInterruptions = false) {
 // Stream user audio from Discord to OpenAI
 function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, interaction) {
     const { EndBehaviorType } = require('@discordjs/voice');
-    const { injectMessage, cancelResponse, startSilenceStream, stopSilenceStream } = require('./openaiControl');
 
     // Transform stream that decodes each Opus packet to PCM16 at 24000Hz mono.
     class OpusDecoderStream extends Transform {
@@ -269,8 +295,11 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, intera
     const activeSpeakers = new Map();
     const currentAudioState = state.currentAudioState;
 
-    // Local variable to track the silence interval ID
-    let silenceIntervalId = null;
+    // Local variable to track the active silence stream control
+    let silenceControl = null;
+
+    // Initialize our custom mixer
+    const mixer = new PCMMonoMixer(ws);
 
     connection.receiver.speaking.on("start", userId => {
         // Don't process new speakers if shutting down
@@ -292,106 +321,70 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, intera
 
         console.log(`--User ${userId} started speaking`);
 
-        // Someone is speaking, stop any empty audio stream from a previous speaker if there was one
-        if (silenceIntervalId) {
-            silenceIntervalId = stopSilenceStream(silenceIntervalId);
+        // User started speaking: cancel any active silence stream
+        if (silenceControl) {
+            stopSilenceStream(silenceControl);
+            silenceControl = null;
         }
 
-        // Create a fresh decoder stream for each speaking session
-        const decoderStream = new OpusDecoderStream();
-
-        // Subscribe to the user's opus audio stream.
+        // Subscribe to user's Opus stream (manual end) and decode to PCM16 mono
         const opusStream = connection.receiver.subscribe(userId, {
-            end: { behavior: EndBehaviorType.AfterSilence, duration: 1000 }
+            end: { behavior: EndBehaviorType.Manual }
         });
-
-        // Pipe the opus stream through the decoder to get PCM16 @24000 Hz mono.
+        const decoderStream = new OpusDecoderStream();
         const pcmStream = opusStream.pipe(decoderStream);
-        let bufferData = Buffer.alloc(0);
+        // Prevent unhandled stream errors
+        opusStream.on('error', err => { console.error(`OpusStream error for user ${userId}:`, err); cleanup(userId); });
+        decoderStream.on('error', err => { console.error(`DecoderStream error for user ${userId}:`, err); cleanup(userId); });
+        pcmStream.on('error', err => { console.error(`PCMStream error for user ${userId}:`, err); cleanup(userId); });
 
-        // Add user to active speakers list with timestamp
+        // Track streams and timestamp for interruption and cleanup
         activeSpeakers.set(userId, {
-            timestamp: Date.now(),
-            streams: { opusStream, decoderStream, pcmStream },
-            firstPass: true,
-            interruptionDelayTime: Date.now()
+            opusStream,
+            decoderStream,
+            pcmStream,
+            timestamp: Date.now()
         });
 
+        // On each PCM chunk, run interruption logic then feed to mixer
+        let firstPass = true;
         pcmStream.on('data', chunk => {
-            if (!activeSpeakers.has(userId) || state.isVoiceChatShuttingDown) {
-                return; // Skip processing if no longer active
-            }
-
-            // Set the speaker
+            if (!activeSpeakers.has(userId) || state.isVoiceChatShuttingDown) return;
             const speakerData = activeSpeakers.get(userId);
-            // Combine any past unsent data with the new chunk
-            bufferData = Buffer.concat([bufferData, chunk]);
-
-            /* Send data, cancel any in-progress response from OpenAI, and truncate the past 
-            response if needed when we reach the chunk size and the interruption delay has passed */
-            while (bufferData.length && ((Date.now() - speakerData.interruptionDelayTime) > process.env.VOICE_CHAT_INTERRUPTION_DELAY)) {
-                // Cancel any in-progress response when a user starts speaking
-                if (currentAudioState.responseItemId && speakerData.firstPass && currentAudioState.isPlaying) {
-                    console.log(`--Cancelling any in-progress response as the user has started speaking past the interruption delay`);
-                    cancelResponse(ws); // Use the new function
+            // interruption cancel & announce on first chunk after delay
+            if (firstPass && (Date.now() - speakerData.timestamp) > process.env.VOICE_CHAT_INTERRUPTION_DELAY) {
+                if (currentAudioState.responseItemId && currentAudioState.isPlaying) {
+                    cancelResponse(ws);
                     truncateAudio(ws, currentAudioState.responseItemId);
                 }
-                // Inject message via text who is about to speak
-                if (speakerData.firstPass) {
-                    filterCheckThenFilterString(interaction.guild.members.cache.get(userId).displayName)
-                        .then(displayName => {
-                            injectMessage(ws, `${displayName}, is now speaking.`);
-                        })
-                        .catch(error => {
-                            console.error('Error filtering display name:', error);
-                        });
-                }
-                speakerData.firstPass = false;
-                // Finish by sending the chunk
-                const sendChunk = bufferData;
-                bufferData = Buffer.alloc(0);
-
-                ws.send(JSON.stringify({
-                    type: 'input_audio_buffer.append',
-                    audio: sendChunk.toString('base64')
-                }));
-                console.log(`-Sent input_audio_buffer.append chunk: ${sendChunk.length} bytes`);
+                filterCheckThenFilterString(interaction.guild.members.cache.get(userId).displayName)
+                    .then(name => injectMessage(ws, `${name}, is now speaking.`))
+                    .catch(console.error);
+                firstPass = false;
             }
+            // feed PCM directly into mixer
+            mixer.updateBuffer(userId, chunk);
         });
 
-        // Add error handlers to prevent crashes
-        opusStream.on('error', (error) => {
-            console.error(`Opus stream error for user ${userId}:`, error);
-            cleanup(userId);
-        });
-
-        decoderStream.on('error', (error) => {
-            console.error(`Decoder stream error for user ${userId}:`, error);
-            cleanup(userId);
-        });
-
-        pcmStream.on('error', (error) => {
-            console.error(`PCM stream error for user ${userId}:`, error);
-            cleanup(userId);
-        });
     });
 
     // Handle stop speaking event to properly clean up resources
     connection.receiver.speaking.on("end", userId => {
         console.log(`--User ${userId} stopped speaking. Cleaning up.`);
+        // cleanup mixer buffer and user streams
+        mixer.removeBuffer(userId);
         cleanup(userId);
 
         // Check if any users are still speaking
         if (activeSpeakers.size === 0) {
             // No one is speaking, start a stream of 5 seconds of silence to allow OpenAI to process semantic VAD
             console.log(`-No one is currently speaking, starting silence stream`);
-
-            // If we already have a silence interval running, stop it first
-            if (silenceIntervalId) {
-                silenceIntervalId = stopSilenceStream(silenceIntervalId);
+            // Ensure only one silence stream: stop existing first
+            if (silenceControl) {
+                stopSilenceStream(silenceControl);
             }
-            // Start a new silence stream and store the interval ID
-            silenceIntervalId = startSilenceStream(ws);
+            // Start a new silence stream and store control
+            silenceControl = startSilenceStream(ws);
         }
     });
 
@@ -399,12 +392,11 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, intera
     function cleanup(userId) {
         if (activeSpeakers.has(userId)) {
             console.log(`-Cleaning up resources for user ${userId}`);
-            const { streams } = activeSpeakers.get(userId);
-
+            const speakerData = activeSpeakers.get(userId);
             try {
-                if (streams.opusStream) streams.opusStream.destroy();
-                if (streams.decoderStream) streams.decoderStream.destroy();
-                if (streams.pcmStream) streams.pcmStream.destroy();
+                if (speakerData.pcmStream) speakerData.pcmStream.destroy();
+                if (speakerData.decoderStream) speakerData.decoderStream.destroy();
+                if (speakerData.opusStream) speakerData.opusStream.destroy();
             } catch (err) {
                 console.error(`-Error cleaning up streams for user ${userId}:`, err);
             }

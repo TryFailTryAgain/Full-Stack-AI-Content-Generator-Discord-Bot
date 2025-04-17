@@ -8,21 +8,48 @@ const WebSocket = require('ws');
 const state = require('./voiceGlobalState.js');
 
 // Set up a WebSocket connection to OpenAI's real-time voice API
-function setupRealtimeVoiceWS() {
+async function setupRealtimeVoiceWS(interaction) {
     // Reset the shutdown flag when setting up a new connection
     state.isVoiceChatShuttingDown = false;
     // Use the environment variable for the model URL
     const wsUrl = process.env.VOICE_CHAT_MODEL_URL;
+
     const ws = new WebSocket(wsUrl, {
         headers: {
             "Authorization": "Bearer " + process.env.API_KEY_OPENAI_CHAT,
             "OpenAI-Beta": "realtime=v1",
         },
     });
-    ws.on('error', (error) => {
-        console.error('WebSocket error:', error);
+
+    // Return a promise that resolves when the connection is established
+    return new Promise((resolve, reject) => {
+        ws.on('error', (error) => {
+            console.error('WebSocket error:', error);
+            reject(error); // Reject the promise on error
+        });
+
+        ws.on('open', () => {
+            console.log('-WebSocket connection established to OpenAI voice API');
+            // Setup detailed websocket message logging if enabled
+            if (process.env.ADVCONF_OPENAI_VOICE_CHAT_SYSTEM_LOGGING === 'true') {
+                setupWsMessageLogging(ws);
+            }
+        });
     });
-    return ws;
+}
+
+// Helper function to set up WebSocket message logging
+function setupWsMessageLogging(ws) {
+    console.log(`-Session has enabled full logging.`);
+    ws.on("message", message => {
+        const serverMessage = JSON.parse(message);
+        const excludedTypes = [
+            "response.audio.delta", "response.audio_transcript.delta", "response.function_call_arguments.delta"
+        ];
+        if (!excludedTypes.includes(serverMessage.type)) {
+            console.log("Server message:", serverMessage);
+        }
+    });
 }
 
 // Update the session parameters for OpenAI voice API
@@ -66,6 +93,7 @@ function updateSessionParams(ws, params) {
 }
 
 // Start sending empty audio packets to keep the semantic VAD processing correctly
+// Start sending silence packets to OpenAI, returns control object
 function startSilenceStream(ws, silenceInterval = 100) {
     // Create a function to send silence audio packets to OpenAI
     const sendSilencePacket = () => {
@@ -84,25 +112,23 @@ function startSilenceStream(ws, silenceInterval = 100) {
 
     // Start sending silence packets at regular intervals
     const intervalId = setInterval(sendSilencePacket, silenceInterval);
-
     // Set a timeout to automatically stop the silence after 5 seconds
-    const silenceTimeout = setTimeout(() => {
-        if (intervalId) {
-            console.log("-Silence stream timeout reached (5 seconds), stopping");
-            clearInterval(intervalId);
-        }
+    const timeoutId = setTimeout(() => {
+        console.log("-Silence stream timeout reached (5 seconds), stopping");
+        clearInterval(intervalId);
     }, 5000);
 
     console.log("-Started silence stream (will auto-stop after 5 seconds)");
 
-    // Return the interval ID so it can be passed to stopSilenceStream
-    return intervalId;
+    // Return control object so both interval and timeout can be cleared
+    return { intervalId, timeoutId };
 }
 
-// Stop sending silence packets
-function stopSilenceStream(intervalId) {
-    if (intervalId) {
-        clearInterval(intervalId);
+// Stop sending silence packets and clear timeout
+function stopSilenceStream(control) {
+    if (control) {
+        clearInterval(control.intervalId);
+        clearTimeout(control.timeoutId);
         console.log("-Stopped silence stream");
     }
     return null;
@@ -127,7 +153,7 @@ function injectMessage(ws, message) {
         type: "conversation.item.create",
         item: {
             type: "message",
-            role: "user",
+            role: "system",
             content: [
                 {
                     type: "input_text",
@@ -148,6 +174,7 @@ function cancelResponse(ws) {
     ws.send(JSON.stringify(cancelEvent));
     console.log("-Sent response.cancel event to server");
 }
+
 
 module.exports = {
     setupRealtimeVoiceWS,
