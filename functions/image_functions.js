@@ -15,7 +15,7 @@ for (let key in helperFunctions) {
 }
 
 // Import provider-specific functions
-const { generateImageViaDallE3 } = require('./image_providers/OpenAI.js');
+const { generateImageViaDallE3, generateImageViaGPTImageGen1 } = require('./image_providers/OpenAI.js');
 const { generateImageViaStabilityAIv1, searchAndReplace } = require('./image_providers/StabilityXL.js');
 const { generateImageViaSD3, generateImageToImageViaStabilityAISD3 } = require('./image_providers/SD3.js');
 const { generateImageViaReplicate_Juggernaut } = require('./image_providers/Juggernaut.js');
@@ -43,6 +43,17 @@ async function generateImage({ userInput, negativePrompt, imageModel, dimensions
     const hashedUserID = await generateHashedUserId(userID);
 
     switch (imageModel) {
+        case 'gpt-image-1':
+            const imageModerationLevel = (process.env.ADVCONF_IMAGE_SAFTY_CHECK === 'false') ? 'low' : 'auto';
+            imageBuffer = await generateImageViaGPTImageGen1({
+                userInput: userInput,
+                trueDimensions: trueDimensions,
+                numberOfImages: numberOfImages,
+                userID: hashedUserID,
+                quality: process.env.ADVCONF_IMAGE_QUALITY || "auto",
+                moderation: process.env.ADVCONF_IMAGE_MODERATION || "auto"
+            });
+            break;
         case "dall-e-3":
             imageBuffer = await generateImageViaDallE3({
                 userInput: userInput,
@@ -348,6 +359,11 @@ function getDimensions(imageModel, dimensionType) {
             'square': '1:1',
             'tall': '9:16',
             'wide': '16:9'
+        },
+        'gpt-image-1': {
+            'square': '1024x1024',
+            'tall': '1024x1536',
+            'wide': '1536x1024'
         },
     };
 

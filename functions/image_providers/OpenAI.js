@@ -34,4 +34,32 @@ async function generateImageViaDallE3({ userInput, trueDimensions, numberOfImage
     return imageBuffer;
 }
 
-module.exports = { generateImageViaDallE3 };
+async function generateImageViaGPTImageGen1({ userInput, trueDimensions, numberOfImages, userID, quality, moderation }) {
+    console.log('\n---Generating image via GPT image-1---');
+    console.log('-User Input:', userInput);
+    console.log('-True Dimensions:', trueDimensions);
+    console.log('-Number of Images:', numberOfImages);
+    console.log('-Hashed User ID:', userID);
+    console.log('-Quality:', quality);
+    console.log('-Moderation:', moderation);
+
+    let imageBuffer = [];
+    for (let i = 0; i < numberOfImages; i++) {
+        const response = await openaiImage.images.generate({
+            model: 'gpt-image-1',
+            prompt: userInput,
+            n: numberOfImages, // 1-10
+            size: trueDimensions, // 1024x1024,1024x1536,1536x1024
+            quality: quality, // low, medium, high, auto
+            moderation: moderation, // low, auto
+            user: String(userID), // user ID for moderation
+        });
+        const saveBuffer = await sharp(Buffer.from(response.data[0].b64_json, 'base64'))[process.env.ADVCONF_SAVE_IMAGES_AS]({ quality: parseInt(process.env.ADVCONF_JPEG_QUALITY) }).toBuffer();
+        const processedBuffer = await checkThenSave_ReturnSendImage(saveBuffer);
+        imageBuffer.push(processedBuffer);
+    }
+    console.log('GPT imagegen completed!');
+    return imageBuffer;
+}
+
+module.exports = { generateImageViaDallE3, generateImageViaGPTImageGen1 };
