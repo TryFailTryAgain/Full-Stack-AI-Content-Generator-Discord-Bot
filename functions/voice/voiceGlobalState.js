@@ -28,5 +28,6 @@ function setVoiceChatShutdownStatus(status) {
 module.exports = {
     isVoiceChatShuttingDown,
     currentAudioState,
+    lastSpeakerId: null,
     setVoiceChatShutdownStatus
 };

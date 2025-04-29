@@ -274,6 +274,7 @@ function streamOpenAIAudio(ws, connection, noInterruptions = false) {
 // Stream user audio from Discord to OpenAI
 function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, interaction) {
     const { EndBehaviorType } = require('@discordjs/voice');
+    const currentAudioState = state.currentAudioState;
 
     // Transform stream that decodes each Opus packet to PCM16 at 24000Hz mono.
     class OpusDecoderStream extends Transform {
@@ -293,7 +294,6 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, intera
 
     // Track active speaking users to prevent duplicate streams
     const activeSpeakers = new Map();
-    const currentAudioState = state.currentAudioState;
 
     // Local variable to track the active silence stream control
     let silenceControl = null;
@@ -357,9 +357,13 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, intera
                     cancelResponse(ws);
                     truncateAudio(ws, currentAudioState.responseItemId);
                 }
-                filterCheckThenFilterString(interaction.guild.members.cache.get(userId).displayName)
-                    .then(name => injectMessage(ws, `${name}, is now speaking.`))
-                    .catch(console.error);
+                // Only announce if different speaker than last time
+                if (state.lastSpeakerId !== userId) {
+                    filterCheckThenFilterString(interaction.guild.members.cache.get(userId).displayName)
+                        .then(name => injectMessage(ws, `Now speaking: ${name}`, "user"))
+                        .catch(console.error);
+                    state.lastSpeakerId = userId;
+                }
                 firstPass = false;
             }
             // feed PCM directly into mixer
@@ -370,20 +374,21 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, intera
 
     // Handle stop speaking event to properly clean up resources
     connection.receiver.speaking.on("end", userId => {
-        console.log(`--User ${userId} stopped speaking. Cleaning up.`);
+        console.log(`--User ${userId} stopped speaking. Scheduling cleanup.`);
+        const endTime = Date.now();
+        const speaker = activeSpeakers.get(userId);
+        // If user resumed speaking after end, skip cleanup
+        if (speaker && speaker.timestamp > endTime) return;
         // cleanup mixer buffer and user streams
         mixer.removeBuffer(userId);
         cleanup(userId);
 
         // Check if any users are still speaking
         if (activeSpeakers.size === 0) {
-            // No one is speaking, start a stream of 5 seconds of silence to allow OpenAI to process semantic VAD
             console.log(`-No one is currently speaking, starting silence stream`);
-            // Ensure only one silence stream: stop existing first
             if (silenceControl) {
                 stopSilenceStream(silenceControl);
             }
-            // Start a new silence stream and store control
             silenceControl = startSilenceStream(ws);
         }
     });

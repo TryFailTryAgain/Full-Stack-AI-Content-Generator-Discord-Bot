@@ -77,7 +77,7 @@ async function toolCallListener(ws, interaction) {
                                     content: "Generated image from voice request",
                                     files: [attachment]
                                 });
-                                injectMessageGetResponse(ws, "If this is the first image the user has asked for, you should let the user know that the image has now been generated and can be viewed from the discord channel you were summoned from. If this is not the first image they asked for, just note that the image was successfully made.");
+                                injectMessageGetResponse(ws, "If this is the first image the user has asked for,  let the user know that the image has now been generated and can be viewed from the discord channel they summoned you from. If this is not the first image they asked for, just note that the image was successfully made. Include a comment about the image.");
                             } catch (error) {
                                 console.error("Error processing generate_image tool call:", error);
                                 injectMessageGetResponse(ws, "Instruct to the user: Sorry, I encountered an error generating the image. I dont fully know when went wrong, but I can try again with that generation request if you would like me to.");
@@ -167,13 +167,13 @@ function startSilenceStream(ws, silenceInterval = 100) {
 
     // Start sending silence packets at regular intervals
     const intervalId = setInterval(sendSilencePacket, silenceInterval);
-    // Set a timeout to automatically stop the silence after 5 seconds
+    // Set a timeout to automatically stop the silence after 10 seconds
     const timeoutId = setTimeout(() => {
-        console.log("-Silence stream timeout reached (5 seconds), stopping");
+        console.log("-Silence stream timeout reached (10 seconds), stopping");
         clearInterval(intervalId);
-    }, 5000);
+    }, 10000);
 
-    console.log("-Started silence stream (will auto-stop after 5 seconds)");
+    console.log("-Started silence stream (will auto-stop after 10 seconds)");
 
     // Return control object so both interval and timeout can be cleared
     return { intervalId, timeoutId };
@@ -203,12 +203,12 @@ function injectMessageGetResponse(ws, instruction) {
 }
 
 // Inject a text message into the history without inducing inference
-function injectMessage(ws, message) {
+function injectMessage(ws, message, role = "user") {
     const conversationItem = {
         type: "conversation.item.create",
         item: {
             type: "message",
-            role: "system",
+            role: role, // user, assistant, system
             content: [
                 {
                     type: "input_text",
