@@ -4,7 +4,8 @@ package-lock.json
 
 # Output files
 Outputs/*
-!Outputs/example.png
+!Outputs/image-edit-example.jpg
+!Outputs/image-Example.png
 
 # Environments
 .env
