@@ -1,49 +1,47 @@
 # Full Stack AI Content Generator Fully Built As A Ready To Deploy Discord Bot
 
-#### Allows you to automatically generate images of any kind using Flux.1, Dall-E 3, Stability.AI, and more via Replicate api; optimize/stylize image prompts using LLMs; Integrate an open chatbot that has contextual understanding of each member; and ad-lib stories to fill in, all from within Discord. 
+#### Allows you to automatically generate images of any kind using Flux.1, Imagen, Stability.AI, and more via Replicate api; optimize/stylize image prompts using LLMs; Integrate an open chatbot that has contextual understanding of each member; and ad-lib stories to fill in, all from within Discord. 
 ----------------------
-<p align="center"><img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Content-Generator-Discord-Bot/blob/main/assets/image-example.png"width=22%> <img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Meme-Generator-Discord-Bot/blob/main/assets/example2.png" width=30%><img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Content-Generator-Discord-Bot/blob/main/assets/image-refinement-example.png" width=45%></p>
+<p align="center">
+  <img src="[IMAGE_EXAMPLE_PLACEHOLDER]" width="35%">  <!-- Replace with your own image URL -->
+  <img src="[IMAGE_REFINEMENT_PLACEHOLDER]" width="65%">  <!-- Replace with your own image URL -->
+</p>
 
 ## Features
+  - Built-in moderation
+    - Enabled by default to ensure a safer, more responsible deployment out of the box
+    - Actively detects, filters, and blocks inappropriate or harmful prompts in both text and image interactions
+    - Helps prevent abuse making your community better for all
   - Real-time AI voice chat in Discord voice channels
     - Join any voice channel and have natural, real-time voice-voice conversations with openAI's realtime models
     - Understands tone and inflection naturally, supports both interruptible ai by talking over it and non-interrupting modes for different conversation styles or large group calls
     - Set time limits for voice chat sessions to manage resource usage
-  - Use Flux.1, Dall-E 3, Stability.AI, and more via Replicate api
+  - Use Flux.1, Imagen, Stability.AI, and more via Replicate api
     - Natural language prompting allows conversational requests to make great images prompts after prepossessing them with OpenAI. ex input: "Make a photo of a cactus look realistic but add a baseball hat". This feature is disabled for more advanced image models as they already have a better understanding of the users intent.
     - Regenerate, Upscale, and iterative on generated images with easy to use buttons
     - Iterative image refinement using conversational editing. The editor attempts to maintain as much of the original image while adapting the parts you request to be modified. (Working in older versions, currently under development again for easier use)
     - Multi-image generation, Image dimensions, Seed, CFG, Steps, and options to disable natural language processing are built into the command
 - Model switching capabilities
   - Seamlessly switch between multiple AI models for image generation like Dall-E 3, Flux.1, Stable Diffusion, and more
-  - Each model provides different strengths and artistic styles for varied image generation results
-  - Advanced configuration options available for each model to fine-tune your generations
 - Enable a chatbot in any text channel
-  - Per channel text bots can be activated for all users in chat. No need to issue more / commands. Enable once for your desired duration and the bot will understand all your members chatting and understand them.
+  - Per channel text bots can be activated for all users in chat. No need to issue more / commands. Enable once for your desired duration and the bot will understand all your different members chatting.
   - To preserve user privacy no previous messages are added to the context window prior to the command activating. A warning is also issued by the bot that it is now active in the specified text channel.
 - Create an AI generated ad-lib story that you fill in
-- Uses OpenAI's GPT-4 to generate on demand memes using a concept of your choice or random selection
-- High degree of customization for all commands on the host's end
-  - Custom api endpoints for OpenAI compatible APIs
-  - Customize system and user messages for each command calling OpenAI
-  - Optional moderation logging with discord user privacy preserving features
-  - Profanity filtering
-  - Image safty checks
-  - OpenAI model used on a per command basis and many more!
+- High degree of easy customization for all commands
 
 ## Current Discord bot /slash commands
 - /image
-  - Generates an image given a message and some optional parameters. Has buttons to Regenerate, Upscale, or Refine with chat for each image generation
+  - Generates an image given a message and some optional parameters. Has buttons to Regenerate, Upscale, or Refine with chat for conversational and selective editing
 - /image-advanced
-  - Provides fine grain control over all aspects of image creation including model selection, image dimensions, and advanced parameters. Supports uploading images for image-to-image generation and more.
+  - Provides fine grain control over all aspects of image creation including model selection, image dimensions, and advanced parameters. Supports text2img, img2img, upscaling, and image-edit modes via a dynamically populated selection menu
 - /chat
   - A chatbot that can be activated with the channel that the command is called from. It will be active and respond to any users messages until the set duration is over or the command is called again to end it.
 - /voice-chat
   - Join a specified voice channel to enable real-time voice conversations with an AI assistant
   - Optional 'no_interruptions' mode allows the AI to finish speaking even when users talk over it
   - Automatically detects and recognizes users in the voice channel
-- /ad-lib_story
-  - This will summon chatGPT to create a story, with or without a user prompt to guide it, that then sends a modal form for the user to fill out before turning the ad-libed story back over to them
+- /ad-lib-story
+  - Generates a Madlibs-style story (optionally guided by your prompt) and sends a modal form for you to fill in placeholders before returning the final story
 
 
 ## Usage instructions
@@ -78,16 +76,34 @@
 6. Start the bot!
     - node .
 
-## Settings for customization via enviroment variables and in .env files
--UPDATE COMING TO THIS LIST-
+## Settings for customization via environment variables and in .env files
+-This is NOT a full list and other more detailed customizations are not listed. See .env.defaults-
 
-Global settings:
-- Profanity filter can be enabled/disabled
+[Image command settings]
+- IMAGE_MODEL: model for text-to-image generation (e.g., black-forest-labs/flux-dev)
+- IMAGE_PROMPT_MODEL: LLM for prompt optimization (e.g., gpt-4o-mini)
+- IMAGE_UPSCALE_MODEL: model for upscaling outputs (e.g., nightmareai/real-esrgan)
 
-/image specific settings:
-- Adjustable OpenAI System and User messages per request type
-- LLM model selection per request type
-- Image generation platform OpenAI or Stability.ai
-- Moderation logging
-- Save images to disk can be enabled or disabled
-- Adjustable image format png/jpeg/webp/...ect
+[Advanced image command settings]
+- IMAGE_ADV_TEXT2IMG_MODELS: comma-separated list of available text-to-image models
+- IMAGE_ADV_IMG2IMG_MODELS: comma-separated list of img2img models
+- IMAGE_ADV_UPSCALE_MODELS: comma-separated list of upscaling models
+- IMAGE_ADV_EDIT_MODELS: comma-separated list of image edit models
+
+[Chat command settings]
+- CHAT_MODEL: LLM used for chat responses (e.g., gpt-4o-mini)
+- CHAT_SYSTEM_MESSAGE: base system prompt for the chat assistant
+- CHAT_USER_MESSAGE: optional user message template for chat commands
+
+[Voice chat command settings]
+- VOICE_CHAT_MODEL_URL: WebSocket URL for real-time voice API
+- VOICE_CHAT_TIME_LIMIT: time limit for voice sessions in seconds
+- VOICE_CHAT_INTERRUPTION_DELAY: delay before AI is interrupted (ms)
+
+[Ad-lib story settings]
+- ADLIB_PROMPT_MODEL: LLM model for story generation (e.g., gpt-4o-mini)
+
+[Advanced options]
+- ADVCONF_SAVE_IMAGES: enable saving generated images locally (true/false)
+- ADVCONF_SEND_IMAGES_AS: format for sending images (jpeg/png)
+- ADVCONF_JPEG_QUALITY: quality level for JPEG images (1–100)
