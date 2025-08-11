@@ -30,8 +30,16 @@ function startChatCollector(interaction, time) {
         try {
             chatResponse = await sendChatMessage(conversationHistory);
         } catch (error) {
-            followUp(interaction, "An error occurred while sending/receiving the message to the chatbot service. Please try again later");
-            return;
+            if (error.message.includes('flagged')) {
+                followUp(interaction, "Your message/username was flagged by the moderation system. This may be logged for review.");
+                // Remove the last user message from the conversation history since it was flagged
+                conversationHistory.pop();
+                return;
+            } else {
+                followUp(interaction, "An error occurred while sending/receiving the message to the chatbot service. Please try again later");
+                conversationHistory.pop();
+                return;
+            }
         }
         chatResponse = await filterCheckThenFilterString(chatResponse);
 

@@ -11,7 +11,7 @@ function getIniFileContent(filePath) {
 }
 
 async function filterCheck() {
-    const inputFilter = process.env.ADVCONF_FILTER_NAUGHTY_WORDS.toLowerCase();
+    const inputFilter = process.env.MODERATION_FILTER_NAUGHTY_WORDS.toLowerCase();
 
     // Alert console if the profanity filter is enabled or disabled
     if (inputFilter === 'true') {

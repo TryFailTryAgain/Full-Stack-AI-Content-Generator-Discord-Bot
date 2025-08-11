@@ -64,7 +64,11 @@ module.exports = {
             });
         } catch (error) {
             console.error(error);
-            deleteAndFollowUpEphemeral(interaction, "An error occurred while generating the image. Please try again");
+            if (error.message.includes('flagged')) {
+                await deleteAndFollowUpEphemeral(interaction, "Your prompt was flagged by the moderation system. This may be logged for review.");
+                return;
+            }
+            await deleteAndFollowUpEphemeral(interaction, "An error occurred while generating the image. Please try again");
             return;
         }
 
@@ -91,7 +95,8 @@ module.exports = {
                 .setLabel('Refine Image')
                 .setStyle(ButtonStyle.Primary)
                 .setEmoji('🔧'),
-            new ButtonBuilder()
+            /* Disabled as the 'refine' button serves as a far superior option
+                new ButtonBuilder()
                 .setCustomId('25similarity')
                 .setLabel('New 25% Similar')
                 .setStyle(ButtonStyle.Primary)
@@ -101,6 +106,7 @@ module.exports = {
                 .setLabel('New 50% Similar')
                 .setStyle(ButtonStyle.Primary)
                 .setEmoji('🧬'),
+            */
         );
         // Second action row for additional options. Max 5 per row
         const row2 = new ActionRowBuilder().addComponents(
@@ -267,7 +273,7 @@ module.exports = {
             }
         });
 
-        // Handle modal submission for refining the prompt
+        // Handle modal submission for editing the image
         interaction.client.on('interactionCreate', async modalInteraction => {
             if (!modalInteraction.isModalSubmit()) return;
             if (modalInteraction.customId !== 'refineModal') return;
@@ -285,16 +291,12 @@ module.exports = {
 
             const refinementRequest = modalInteraction.fields.getTextInputValue('refinementInput');
             try {
-                // Adapt the prompt based on refinement and generate a new image
-                const refinedPrompt = await adaptImagePrompt(userInput, refinementRequest, interaction.user.id);
-                userInput = refinedPrompt;
 
-                imageBuffer = await generateImage({
-                    userInput: userInput,
-                    imageModel: imageModel,
+                imageBuffer = await generateImageEdit({
+                    image: imageBuffer[0],
+                    instructions: refinementRequest,
                     userID: interaction.user.id,
-                    numberOfImages: 1,
-                    dimensions: dimensions
+                    ImageEdit_Model: process.env.IMAGE_IMAGEEDIT_MODEL
                 });
                 attachments.unshift(new AttachmentBuilder(imageBuffer[0]));
 

@@ -10,6 +10,7 @@ const { SlashCommandBuilder, ActionRowBuilder, StringSelectMenuBuilder, StringSe
 const fs = require('fs');
 const { generateImage, generateImageToImage } = require('../../functions/image_functions.js');
 const { collectUserInput, collectImageAndPrompt, collectImage } = require('../../functions/helperFunctions.js');
+const image = require('./image.js');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -26,6 +27,7 @@ module.exports = {
         // Creates action dynamicly based on provided models and settings
         const advSettings = {
             'text2img': process.env.IMAGE_ADV_TEXT2IMG_MODELS,
+            'edit-image': process.env.IMAGE_ADV_EDIT_MODELS,
             'img2img': process.env.IMAGE_ADV_IMG2IMG_MODELS,
             'upscale': process.env.IMAGE_ADV_UPSCALE_MODELS
         };
@@ -112,6 +114,16 @@ module.exports = {
                     });
                     await sendImages(interaction, images);
 
+                } else if (actionType.toLowerCase() === 'edit-image') {
+                    const { imageURL, prompt } = await collectImageAndPrompt(interaction, 'Please send the image you want to edit and enter your how and what you want changed below it in one single message:');
+                    const images = await generateImageEdit({
+                        image: imageURL,
+                        instructions: prompt,
+                        ImageEdit_Model: model,
+                        userID: interaction.user.id
+                    });
+                    await sendImages(interaction, images);
+
                 } else if (actionType.toLowerCase() === 'img2img') {
                     const { imageURL, prompt } = await collectImageAndPrompt(interaction, 'Please send the base image and enter your prompt below it in one single message:');
                     const images = await generateImageToImage({
@@ -139,7 +151,9 @@ module.exports = {
                 }
             } catch (error) {
                 console.error('Error handling action type:', error);
-                if (error.code === 20009) {
+                if (error.message.includes('flagged')) {
+                    await interaction.followUp({ content: 'Your input was flagged by the moderation system. Please try again with different content. This request may be logged for review.', ephemeral: true });
+                } else if (error.code === 20009) {
                     await interaction.followUp({ content: 'Your image contains explicit content that can not be displayed in this SFW channel. Try another channel or a DM', ephemeral: true });
                 } else {
                     await interaction.followUp({ content: 'An unexpected error occurred. Please try again and report any bugs to help improve me!', ephemeral: true });

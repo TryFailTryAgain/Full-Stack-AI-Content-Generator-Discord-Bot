@@ -10,6 +10,7 @@ const ini = require('ini');
 const OpenAI = require('openai');
 const Filter = require('bad-words');
 const filter = new Filter({ placeHolder: '*' });
+const { moderateContent } = require('../../functions/moderation');
 
 const openai = new OpenAI({ apiKey: process.env.API_KEY_OPENAI_CHAT });
 // Get base URL for the API
@@ -65,6 +66,26 @@ module.exports = {
                     });
                     return;
                 }
+            }
+            // Moderate the content after filtering
+            try {
+                const flagged = await moderateContent({ text: userInput });
+                if (flagged) {
+                    await interaction.deleteReply();
+                    await interaction.followUp({
+                        content: "Your prompt did not pass moderation. Please try again with different content.",
+                        ephemeral: true
+                    });
+                    return;
+                }
+            } catch (error) {
+                console.error(error);
+                await interaction.deleteReply();
+                await interaction.followUp({
+                    content: "An error occurred during moderation. Please try again later.",
+                    ephemeral: true
+                });
+                return;
             }
         } else {
             console.log("No prompt was provided by the user");
@@ -275,13 +296,13 @@ async function placeholderCount(story) {
 }
 
 async function filterCheck() {
-    const inputFilter = process.env.ADVCONF_FILTER_NAUGHTY_WORDS;
+    const inputFilter = process.env.MODERATION_FILTER_NAUGHTY_WORDS;
     if (inputFilter === 'true' || inputFilter === 'True' || inputFilter === 'TRUE') {
         return true;
     } else if (inputFilter === 'false' || inputFilter === 'False' || inputFilter === 'FALSE') {
         return false;
     } else {
-        throw new Error("ADVCONF_FILTER_NAUGHTY_WORDS is not set to true or false in .env.defaults");
+        throw new Error("MODERATION_FILTER_NAUGHTY_WORDS is not set to true or false in .env.defaults");
     }
 }
 

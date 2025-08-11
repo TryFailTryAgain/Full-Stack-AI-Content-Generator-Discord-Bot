@@ -18,10 +18,16 @@ for (let key in helperFunctions) {
 const { generateImageViaDallE3, generateImageViaGPTImageGen1 } = require('./image_providers/OpenAI.js');
 const { generateImageViaStabilityAIv1, searchAndReplace } = require('./image_providers/StabilityXL.js');
 const { generateImageViaSD3, generateImageToImageViaStabilityAISD3 } = require('./image_providers/SD3.js');
-const { generateImageViaReplicate_Juggernaut } = require('./image_providers/Juggernaut.js');
 const { generateImageViaReplicate_FluxSchnell } = require('./image_providers/FluxSchnell.js');
 const { generateImageViaReplicate_FluxDev, generateImageToImageViaReplicate_FluxDev } = require('./image_providers/FluxDev.js');
 const { upscaleImageViaReplicate_esrgan } = require('./image_providers/ReplicateESRGAN.js');
+const { generateImageViaReplicate_Seedream3 } = require('./image_providers/Seedream3.js');
+const { generateImageViaReplicate_Imagen4Fast } = require('./image_providers/Imagen4Fast.js');
+const { generateImageViaReplicate_Imagen4 } = require('./image_providers/Imagen4.js');
+const { generateImageViaReplicate_Imagen4Ultra } = require('./image_providers/Imagen4Ultra.js');
+const { generateImageEditViaReplicate_FluxKontextPro } = require('./image_providers/FluxKontextPro.js');
+const { generateImageEditViaReplicate_FluxKontextDev } = require('./image_providers/FluxKontextDev.js');
+const { moderateContent } = require('./moderation.js');
 
 const openaiChatBaseURL = process.env.ADVCONF_OPENAI_CHAT_BASE_URL;
 const openaiChat = new OpenAI({ apiKey: process.env.API_KEY_OPENAI_CHAT });
@@ -37,6 +43,14 @@ console.log(`Save images to disk -- /image == ${saveToDiskCheck() ? 'ENABLED' : 
 async function generateImage({ userInput, negativePrompt, imageModel, dimensions, numberOfImages, cfg, steps, seed, userID }) {
     // Creates an empty array to store the image buffers in
     let imageBuffer = [];
+
+    userInput = await filterCheckThenFilterString(userInput);
+    negativePrompt = await filterCheckThenFilterString(negativePrompt);
+    // Moderate the image and instructions before proceeding
+    if (await moderateContent({ text: userInput + ' ' + negativePrompt })) {
+        throw new Error("The provided image or instructions were flagged by the moderation system.");
+    }
+
     // Get the correct dimensions for the image
     const trueDimensions = getDimensions(imageModel, dimensions);
     // Generate a hashed user ID to send to openai instead of the original user ID
@@ -44,7 +58,7 @@ async function generateImage({ userInput, negativePrompt, imageModel, dimensions
 
     switch (imageModel) {
         case 'gpt-image-1':
-            const imageModerationLevel = (process.env.ADVCONF_IMAGE_SAFTY_CHECK === 'false') ? 'low' : 'auto';
+            const imageModerationLevel = (process.env.ADVCONF_REPLICATE_IMAGE_SAFTY_CHECK === 'false') ? 'low' : 'auto';
             imageBuffer = await generateImageViaGPTImageGen1({
                 userInput: userInput,
                 trueDimensions: trueDimensions,
@@ -87,18 +101,6 @@ async function generateImage({ userInput, negativePrompt, imageModel, dimensions
                 numberOfImages: numberOfImages
             });
             break;
-        case imageModel.match(/^lucataco\/juggernaut-xl-v9:/)?.input:
-            imageBuffer = await generateImageViaReplicate_Juggernaut({
-                userInput: userInput,
-                negativePrompt: negativePrompt,
-                imageModel: imageModel,
-                trueDimensions: trueDimensions,
-                numberOfImages: numberOfImages,
-                cfg: cfg,
-                steps: steps,
-                disable_safety_checker: !Boolean(process.env.ADVCONF_IMAGE_SAFTY_CHECK)
-            });
-            break;
         case "black-forest-labs/flux-schnell":
             imageBuffer = await generateImageViaReplicate_FluxSchnell({
                 userInput: userInput,
@@ -107,7 +109,7 @@ async function generateImage({ userInput, negativePrompt, imageModel, dimensions
                 trueDimensions: trueDimensions,
                 output_format: "webp",
                 output_quality: 100,
-                disable_safety_checker: !Boolean(process.env.ADVCONF_IMAGE_SAFTY_CHECK),
+                disable_safety_checker: !Boolean(process.env.ADVCONF_REPLICATE_IMAGE_SAFTY_CHECK),
             });
             break;
         case "black-forest-labs/flux-dev":
@@ -118,10 +120,33 @@ async function generateImage({ userInput, negativePrompt, imageModel, dimensions
                 trueDimensions: trueDimensions,
                 output_format: "webp",
                 output_quality: 100,
-                disable_safety_checker: !Boolean(process.env.ADVCONF_IMAGE_SAFTY_CHECK),
+                disable_safety_checker: !Boolean(process.env.ADVCONF_REPLICATE_IMAGE_SAFTY_CHECK),
                 seed: seed,
-                //prompt_strength: null,
-                //num_inference_steps: null
+            });
+            break;
+        case 'bytedance/seedream-3':
+            imageBuffer = await generateImageViaReplicate_Seedream3({
+                userInput: userInput,
+                seed: seed,
+                aspect_ratio: trueDimensions
+            });
+            break;
+        case 'google/imagen-4-fast':
+            imageBuffer = await generateImageViaReplicate_Imagen4Fast({
+                userInput: userInput,
+                aspect_ratio: trueDimensions
+            });
+            break;
+        case 'google/imagen-4':
+            imageBuffer = await generateImageViaReplicate_Imagen4({
+                userInput: userInput,
+                aspect_ratio: trueDimensions
+            });
+            break;
+        case 'google/imagen-4-ultra':
+            imageBuffer = await generateImageViaReplicate_Imagen4Ultra({
+                userInput: userInput,
+                aspect_ratio: trueDimensions
             });
             break;
         default:
@@ -133,6 +158,10 @@ async function generateImage({ userInput, negativePrompt, imageModel, dimensions
 
 async function generateImageToImage({ image, userInput, negativePrompt, Image2Image_Model, strength, seed, userID }) {
     let imageBuffer = [];
+    // Moderate the image and instructions before proceeding
+    if (await moderateContent({ image: image, text: userInput + ' ' + negativePrompt })) {
+        throw new Error("The provided image or instructions were flagged by the moderation system.");
+    }
 
     switch (Image2Image_Model) {
         case 'sd3.5-large':
@@ -153,7 +182,7 @@ async function generateImageToImage({ image, userInput, negativePrompt, Image2Im
                 image: image,
                 userInput: userInput,
                 strength: strength,
-                disable_safety_checker: !Boolean(process.env.ADVCONF_IMAGE_SAFTY_CHECK),
+                disable_safety_checker: !Boolean(process.env.ADVCONF_REPLICATE_IMAGE_SAFTY_CHECK),
             });
             break;
         default:
@@ -164,12 +193,41 @@ async function generateImageToImage({ image, userInput, negativePrompt, Image2Im
 }
 
 // TODO: Implement generateImageEdit function
-async function generateImageEdit({ image, instructions, imageModel, userID }) {
-    return -1;
+async function generateImageEdit({ image, instructions, ImageEdit_Model, userID }) {
+    let imageBuffer = [];
+    // Moderate the image and instructions before proceeding
+    if (await moderateContent({ image: image, text: instructions })) {
+        throw new Error("The provided image or instructions were flagged by the moderation system.");
+    }
+    switch (ImageEdit_Model) {
+        case 'black-forest-labs/flux-kontext-pro':
+            imageBuffer = await generateImageEditViaReplicate_FluxKontextPro({
+                image: image,
+                userInput: instructions,
+                aspect_ratio: 'match_input_image'
+            });
+            break;
+        case 'black-forest-labs/flux-kontext-dev':
+            imageBuffer = await generateImageEditViaReplicate_FluxKontextDev({
+                image: image,
+                userInput: instructions,
+                aspect_ratio: 'match_input_image',
+                disable_safety_checker: !Boolean(process.env.ADVCONF_REPLICATE_IMAGE_SAFTY_CHECK),
+                go_fast: false
+            });
+            break;
+        default:
+            throw new Error(`Unsupported image edit model: ${ImageEdit_Model}`);
+    }
+    return imageBuffer;
 }
 
 async function upscaleImage(imageBuffer, upscaleModel) {
     let upscaledImageBuffer = [];
+    // Moderate the image and instructions before proceeding
+    if (await moderateContent({ image: imageBuffer })) {
+        throw new Error("The provided image or instructions were flagged by the moderation system.");
+    }
 
     switch (upscaleModel) {
         case 'nightmareai/real-esrgan:f121d640bd286e1fdc67f9799164c1d5be36ff74576ee11c803ae5b665dd46aa':
@@ -195,6 +253,10 @@ async function promptOptimizer(userInput, userID) {
     const hashedUserID = await generateHashedUserId(userID);
     let response = null;
 
+    userInput = await filterCheckThenFilterString(userInput);
+    if (await moderateContent({ text: userInput })) {
+        throw new Error("The provided text was flagged by the moderation system.");
+    }
     try {
         response = await openaiChat.chat.completions.create({
             model: Prompt_Model,
@@ -241,6 +303,11 @@ async function adaptImagePrompt(currentPrompt, refinementRequest, userID) {
 
     // Filter the refinement request
     refinementRequest = await filterCheckThenFilterString(refinementRequest);
+    if (await moderateContent({ text: refinementRequest })) {
+        throw new Error("The provided text was flagged by the moderation system.");
+    }
+
+    // Generate a hashed user ID to send to openai instead of the original user ID
     const hashedUserID = await generateHashedUserId(userID);
 
     let response = null;
@@ -315,59 +382,24 @@ async function genSeed() {
 
 function getDimensions(imageModel, dimensionType) {
     const dimensionsMap = {
-        'stable-diffusion-xl-1024-v1-0': {
-            'square': '1024x1024',
-            'tall': '768x1344',
-            'wide': '1344x768'
-        },
-        'dall-e-3': {
-            'square': '1024x1024',
-            'tall': '1024x1792',
-            'wide': '1792x1024'
-        },
-        'stable-diffusion-v1-6': {
-            'square': '512x512',
-            'tall': '512x896',
-            'wide': '896x512'
-        },
-        'sd3.5-large': {
-            'square': '1:1',
-            'tall': '9:16',
-            'wide': '16:9'
-        },
-        'sd3.5-large-turbo': {
-            'square': '1:1',
-            'tall': '9:16',
-            'wide': '16:9'
-        },
-        'sd3.5-medium': {
-            'square': '1:1',
-            'tall': '9:16',
-            'wide': '16:9'
-        },
-        'lucataco/juggernaut-xl-v9:bea09cf018e513cef0841719559ea86d2299e05448633ac8fe270b5d5cd6777e': {
-            'square': '1024x1024',
-            'tall': '768x1344',
-            'wide': '1344x768'
-        },
-        'black-forest-labs/flux-schnell': {
-            'square': '1:1',
-            'tall': '9:16',
-            'wide': '16:9'
-        },
-        'black-forest-labs/flux-dev': {
-            'square': '1:1',
-            'tall': '9:16',
-            'wide': '16:9'
-        },
-        'gpt-image-1': {
-            'square': '1024x1024',
-            'tall': '1024x1536',
-            'wide': '1536x1024'
-        },
+        'stable-diffusion-xl-1024-v1-0': { 'square': '1024x1024', 'tall': '768x1344', 'wide': '1344x768' },
+        'dall-e-3': { 'square': '1024x1024', 'tall': '1024x1792', 'wide': '1792x1024' },
+        'stable-diffusion-v1-6': { 'square': '512x512', 'tall': '512x896', 'wide': '896x512' },
+        'sd3.5-large': { 'square': '1:1', 'tall': '9:16', 'wide': '16:9' },
+        'sd3.5-large-turbo': { 'square': '1:1', 'tall': '9:16', 'wide': '16:9' },
+        'sd3.5-medium': { 'square': '1:1', 'tall': '9:16', 'wide': '16:9' },
+        'black-forest-labs/flux-schnell': { 'square': '1:1', 'tall': '9:16', 'wide': '16:9' },
+        'black-forest-labs/flux-dev': { 'square': '1:1', 'tall': '9:16', 'wide': '16:9' },
+        'bytedance/seedream-3': { 'square': '1:1', 'tall': '9:16', 'wide': '16:9' },
+        'google/imagen-4-fast': { 'square': '1:1', 'tall': '9:16', 'wide': '16:9' },
+        'google/imagen-4': { 'square': '1:1', 'tall': '9:16', 'wide': '16:9' },
+        'google/imagen-4-ultra': { 'square': '1:1', 'tall': '9:16', 'wide': '16:9' }
     };
-
-    return (dimensionsMap[imageModel] || {})[dimensionType] || 'Invalid dimension type';
+    if (!dimensionsMap[imageModel]) {
+        throw new Error(`Unsupported image model for text to image generation: ${imageModel}`);
+    }
+    const dims = dimensionsMap[imageModel];
+    return dims[dimensionType] || 'Invalid dimension type';
 }
 
 // Automatically disable unneeded prompt optimization for more advanced image models

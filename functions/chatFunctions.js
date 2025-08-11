@@ -11,6 +11,7 @@ for (let key in imageFunctions) {
 }
 /* End required modules */
 const { OpenAI } = require('openai');
+const { moderateContent } = require('./moderation.js');
 
 // Validate API keys
 if (!process.env.API_KEY_OPENAI_CHAT || !process.env.API_KEY_OPENAI_IMAGE) {
@@ -42,6 +43,15 @@ function getChatSettings() {
 // Sends a chat message to a chatbot service and returns the response
 async function sendChatMessage(conversationHistory) {
     try {
+        // Moderation check: only check the most recent user message
+        console.log(conversationHistory);
+        // Find the last user message in the conversation history
+        const lastUserMsgObj = [...conversationHistory].reverse().find(msg => msg.role === 'user');
+        const lastUserMsg = lastUserMsgObj.content;
+        if (await moderateContent({ text: lastUserMsg })) {
+            throw new Error('Message/username flagged by moderation. Aborting chat request.');
+        }
+
         // Send the conversation history to OpenAI and get the response
         const chatSettings = getChatSettings();
         const response = await openaiChat.chat.completions.create({
