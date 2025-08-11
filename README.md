@@ -3,8 +3,8 @@
 #### Allows you to automatically generate images of any kind using Flux.1, Imagen, Stability.AI, and more via Replicate api; optimize/stylize image prompts using LLMs; Integrate an open chatbot that has contextual understanding of each member; and ad-lib stories to fill in, all from within Discord. 
 ----------------------
 <p align="center">
-  <img src="[IMAGE_EXAMPLE_PLACEHOLDER]" width="35%">  <!-- Replace with your own image URL -->
-  <img src="[IMAGE_REFINEMENT_PLACEHOLDER]" width="65%">  <!-- Replace with your own image URL -->
+  <img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Content-Generator-Discord-Bot/blob/main/Outputs/image-Example.png" width="55%">  <!-- Replace with your own image URL -->
+  <img src="https://github.com/TryFailTryAgain/Full-Stack-AI-Content-Generator-Discord-Bot/blob/main/Outputs/image-edit-example.jpg" width="55%">  <!-- Replace with your own image URL -->
 </p>
 
 ## Features
