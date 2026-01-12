@@ -40,6 +40,8 @@
   - Join a specified voice channel to enable real-time voice conversations with an AI assistant
   - Optional 'no_interruptions' mode allows the AI to finish speaking even when users talk over it
   - Automatically detects and recognizes users in the voice channel
+- /voice-chat-tts
+  - Just like /voice-chat, but uses speech to text, sent to an LLM, then the voice response is generated using text to speech in realtime
 - /ad-lib-story
   - Generates a Madlibs-style story (optionally guided by your prompt) and sends a modal form for you to fill in placeholders before returning the final story
 
