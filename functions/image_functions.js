@@ -20,6 +20,8 @@ const { generateImageViaStabilityAIv1, searchAndReplace } = require('./image_pro
 const { generateImageViaSD3, generateImageToImageViaStabilityAISD3 } = require('./image_providers/SD3.js');
 const { generateImageViaReplicate_FluxSchnell } = require('./image_providers/FluxSchnell.js');
 const { generateImageViaReplicate_FluxDev, generateImageToImageViaReplicate_FluxDev } = require('./image_providers/FluxDev.js');
+const { generateImageViaReplicate_Flux2Dev, generateImageToImageViaReplicate_Flux2Dev, generateMultiReferenceImageViaReplicate_Flux2Dev, generateImageEditViaReplicate_Flux2Dev } = require('./image_providers/Flux2Dev.js');
+const { generateImageViaReplicate_Flux2Pro, generateImageToImageViaReplicate_Flux2Pro, generateMultiReferenceImageViaReplicate_Flux2Pro, generateImageEditViaReplicate_Flux2Pro } = require('./image_providers/Flux2Pro.js');
 const { upscaleImageViaReplicate_esrgan } = require('./image_providers/ReplicateESRGAN.js');
 const { generateImageViaReplicate_Seedream3 } = require('./image_providers/Seedream3.js');
 const { generateImageViaReplicate_Imagen4Fast } = require('./image_providers/Imagen4Fast.js');
@@ -27,6 +29,8 @@ const { generateImageViaReplicate_Imagen4 } = require('./image_providers/Imagen4
 const { generateImageViaReplicate_Imagen4Ultra } = require('./image_providers/Imagen4Ultra.js');
 const { generateImageEditViaReplicate_FluxKontextPro } = require('./image_providers/FluxKontextPro.js');
 const { generateImageEditViaReplicate_FluxKontextDev } = require('./image_providers/FluxKontextDev.js');
+const { generateImageViaReplicate_Seedream45, generateImageToImageViaReplicate_Seedream45, generateImageEditViaReplicate_Seedream45 } = require('./image_providers/Seedream45.js');
+const { generateImageViaReplicate_NanaBananaPro, generateImageToImageViaReplicate_NanaBananaPro, generateImageEditViaReplicate_NanaBananaPro } = require('./image_providers/NanaBananaPro.js');
 const { moderateContent } = require('./moderation.js');
 
 const openaiChatBaseURL = process.env.ADVCONF_OPENAI_CHAT_BASE_URL;
@@ -107,7 +111,7 @@ async function generateImage({ userInput, negativePrompt, imageModel, dimensions
                 imageModel: imageModel,
                 numberOfImages: numberOfImages,
                 trueDimensions: trueDimensions,
-                output_format: "webp",
+                output_format: "png",
                 output_quality: 100,
                 disable_safety_checker: !Boolean(process.env.ADVCONF_REPLICATE_IMAGE_SAFTY_CHECK),
             });
@@ -118,10 +122,36 @@ async function generateImage({ userInput, negativePrompt, imageModel, dimensions
                 imageModel: imageModel,
                 numberOfImages: numberOfImages,
                 trueDimensions: trueDimensions,
-                output_format: "webp",
+                output_format: "png",
                 output_quality: 100,
                 disable_safety_checker: !Boolean(process.env.ADVCONF_REPLICATE_IMAGE_SAFTY_CHECK),
                 seed: seed,
+            });
+            break;
+        case "black-forest-labs/flux-2-dev":
+            imageBuffer = await generateImageViaReplicate_Flux2Dev({
+                userInput: userInput,
+                imageModel: imageModel,
+                numberOfImages: numberOfImages,
+                trueDimensions: trueDimensions,
+                output_format: "png",
+                output_quality: 100,
+                disable_safety_checker: !Boolean(process.env.ADVCONF_REPLICATE_IMAGE_SAFTY_CHECK),
+                seed: seed,
+                go_fast: true,
+            });
+            break;
+        case "black-forest-labs/flux-2-pro":
+            imageBuffer = await generateImageViaReplicate_Flux2Pro({
+                userInput: userInput,
+                imageModel: imageModel,
+                numberOfImages: numberOfImages,
+                trueDimensions: trueDimensions,
+                output_format: "png",
+                output_quality: 100,
+                seed: seed,
+                resolution: process.env.FLUX2PRO_RESOLUTION || '1 MP',
+                safety_tolerance: process.env.FLUX2PRO_SAFETY_TOLERANCE ? Number(process.env.FLUX2PRO_SAFETY_TOLERANCE) : 2,
             });
             break;
         case 'bytedance/seedream-3':
@@ -149,6 +179,23 @@ async function generateImage({ userInput, negativePrompt, imageModel, dimensions
                 aspect_ratio: trueDimensions
             });
             break;
+        case 'bytedance/seedream-4.5':
+            imageBuffer = await generateImageViaReplicate_Seedream45({
+                userInput: userInput,
+                aspect_ratio: trueDimensions,
+                size: '2K',
+                sequential_image_generation: 'disabled',
+            });
+            break;
+        case 'google/nano-banana-pro':
+            imageBuffer = await generateImageViaReplicate_NanaBananaPro({
+                userInput: userInput,
+                aspect_ratio: trueDimensions,
+                resolution: '2K',
+                output_format: 'png',
+                safety_filter_level: (process.env.ADVCONF_REPLICATE_IMAGE_SAFTY_CHECK === 'false') ? 'block_only_high' : 'block_medium_and_above'
+            });
+            break;
         default:
             throw new Error(`Unsupported image model for text to image generation: ${imageModel}`);
     }
@@ -156,33 +203,85 @@ async function generateImage({ userInput, negativePrompt, imageModel, dimensions
     return imageBuffer;
 }
 
-async function generateImageToImage({ image, userInput, negativePrompt, Image2Image_Model, strength, seed, userID }) {
+async function generateImageToImage({ images, image, userInput, negativePrompt, Image2Image_Model, strength, seed, userID }) {
     let imageBuffer = [];
-    // Moderate the image and instructions before proceeding
-    if (await moderateContent({ image: image, text: userInput + ' ' + negativePrompt })) {
-        throw new Error("The provided image or instructions were flagged by the moderation system.");
+    // Support both single image (legacy) and multiple images
+    const inputImages = images || (image ? [image] : []);
+    
+    // Moderate the images and instructions before proceeding
+    for (const img of inputImages) {
+        if (await moderateContent({ image: img, text: userInput + ' ' + negativePrompt })) {
+            throw new Error("The provided image or instructions were flagged by the moderation system.");
+        }
     }
 
     switch (Image2Image_Model) {
         case 'sd3.5-large':
         case 'sd3.5-large-turbo':
         case 'sd3.5-medium':
+            // SD3 only supports single image, use first one
             const trueDimensions = getDimensions(Image2Image_Model, 'square'); // Assuming 'square' as default dimension type
             imageBuffer = await generateImageToImageViaStabilityAISD3({
                 userInput: userInput,
                 negativePrompt: negativePrompt,
                 imageModel: Image2Image_Model,
                 strength: strength,
-                image: image,
+                image: inputImages[0],
                 numberOfImages: 1 // Assuming 1 as default number of images
             });
             break;
         case 'black-forest-labs/flux-dev':
+            // Flux Dev only supports single image, use first one
             imageBuffer = await generateImageToImageViaReplicate_FluxDev({
-                image: image,
+                image: inputImages[0],
                 userInput: userInput,
                 strength: strength,
                 disable_safety_checker: !Boolean(process.env.ADVCONF_REPLICATE_IMAGE_SAFTY_CHECK),
+            });
+            break;
+        case 'black-forest-labs/flux-2-dev':
+            // Flux 2 Dev supports multiple input images (up to 8)
+            imageBuffer = await generateImageToImageViaReplicate_Flux2Dev({
+                images: inputImages,
+                userInput: userInput,
+                strength: strength,
+                disable_safety_checker: !Boolean(process.env.ADVCONF_REPLICATE_IMAGE_SAFTY_CHECK),
+                go_fast: true,
+                output_format: "png",
+                output_quality: 100,
+            });
+            break;
+        case 'black-forest-labs/flux-2-pro':
+            // Flux 2 Pro supports multiple input images (up to 8)
+            imageBuffer = await generateImageToImageViaReplicate_Flux2Pro({
+                images: inputImages,
+                userInput: userInput,
+                strength: strength,
+                output_format: "png",
+                output_quality: 100,
+                seed: seed,
+                resolution: process.env.FLUX2PRO_RESOLUTION || '1 MP',
+                safety_tolerance: process.env.FLUX2PRO_SAFETY_TOLERANCE ? Number(process.env.FLUX2PRO_SAFETY_TOLERANCE) : 2,
+            });
+            break;
+        case 'bytedance/seedream-4.5':
+            // Seedream 4.5 supports multiple input images (up to 8)
+            imageBuffer = await generateImageToImageViaReplicate_Seedream45({
+                images: inputImages,
+                userInput: userInput,
+                size: '2K',
+                aspect_ratio: 'match_input_image',
+                sequential_image_generation: 'disabled',
+            });
+            break;
+        case 'google/nano-banana-pro':
+            // Nano Banana Pro supports multiple input images (up to 8)
+            imageBuffer = await generateImageToImageViaReplicate_NanaBananaPro({
+                images: inputImages,
+                userInput: userInput,
+                resolution: '2K',
+                output_format: 'png',
+                safety_filter_level: (process.env.ADVCONF_REPLICATE_IMAGE_SAFTY_CHECK === 'false') ? 'block_only_high' : 'block_medium_and_above'
             });
             break;
         default:
@@ -193,27 +292,79 @@ async function generateImageToImage({ image, userInput, negativePrompt, Image2Im
 }
 
 // TODO: Implement generateImageEdit function
-async function generateImageEdit({ image, instructions, ImageEdit_Model, userID }) {
+async function generateImageEdit({ images, image, instructions, ImageEdit_Model, userID }) {
     let imageBuffer = [];
-    // Moderate the image and instructions before proceeding
-    if (await moderateContent({ image: image, text: instructions })) {
-        throw new Error("The provided image or instructions were flagged by the moderation system.");
+    // Support both single image (legacy) and multiple images
+    const inputImages = images || (image ? [image] : []);
+    
+    // Moderate the images and instructions before proceeding
+    for (const img of inputImages) {
+        if (await moderateContent({ image: img, text: instructions })) {
+            throw new Error("The provided image or instructions were flagged by the moderation system.");
+        }
     }
+    
     switch (ImageEdit_Model) {
         case 'black-forest-labs/flux-kontext-pro':
+            // Flux Kontext Pro
             imageBuffer = await generateImageEditViaReplicate_FluxKontextPro({
-                image: image,
+                images: inputImages,
                 userInput: instructions,
                 aspect_ratio: 'match_input_image'
             });
             break;
         case 'black-forest-labs/flux-kontext-dev':
+            // Flux Kontext Dev
             imageBuffer = await generateImageEditViaReplicate_FluxKontextDev({
-                image: image,
+                images: inputImages,
                 userInput: instructions,
                 aspect_ratio: 'match_input_image',
                 disable_safety_checker: !Boolean(process.env.ADVCONF_REPLICATE_IMAGE_SAFTY_CHECK),
                 go_fast: false
+            });
+            break;
+        case 'black-forest-labs/flux-2-dev':
+            // Flux 2 Dev supports multiple input images (up to 8)
+            imageBuffer = await generateImageEditViaReplicate_Flux2Dev({
+                images: inputImages,
+                userInput: instructions,
+                aspect_ratio: 'match_input_image',
+                disable_safety_checker: !Boolean(process.env.ADVCONF_REPLICATE_IMAGE_SAFTY_CHECK),
+                go_fast: true,
+                output_format: 'png',
+                output_quality: 100
+            });
+            break;
+        case 'black-forest-labs/flux-2-pro':
+            // Flux 2 Pro supports multiple input images (up to 8)
+            imageBuffer = await generateImageEditViaReplicate_Flux2Pro({
+                images: inputImages,
+                userInput: instructions,
+                aspect_ratio: 'match_input_image',
+                output_format: 'png',
+                output_quality: 100,
+                seed: undefined,
+                resolution: process.env.FLUX2PRO_RESOLUTION || '1 MP',
+                safety_tolerance: process.env.FLUX2PRO_SAFETY_TOLERANCE ? Number(process.env.FLUX2PRO_SAFETY_TOLERANCE) : 2,
+            });
+            break;
+        case 'bytedance/seedream-4.5':
+            // Seedream 4.5 supports multiple input images (up to 8)
+            imageBuffer = await generateImageEditViaReplicate_Seedream45({
+                images: inputImages,
+                userInput: instructions,
+                size: '2K',
+                aspect_ratio: 'match_input_image'
+            });
+            break;
+        case 'google/nano-banana-pro':
+            // Nano Banana Pro supports multiple input images (up to 8)
+            imageBuffer = await generateImageEditViaReplicate_NanaBananaPro({
+                images: inputImages,
+                userInput: instructions,
+                resolution: '2K',
+                output_format: 'png',
+                safety_filter_level: (process.env.ADVCONF_REPLICATE_IMAGE_SAFTY_CHECK === 'false') ? 'block_only_high' : 'block_medium_and_above'
             });
             break;
         default:
@@ -390,10 +541,14 @@ function getDimensions(imageModel, dimensionType) {
         'sd3.5-medium': { 'square': '1:1', 'tall': '9:16', 'wide': '16:9' },
         'black-forest-labs/flux-schnell': { 'square': '1:1', 'tall': '9:16', 'wide': '16:9' },
         'black-forest-labs/flux-dev': { 'square': '1:1', 'tall': '9:16', 'wide': '16:9' },
+        'black-forest-labs/flux-2-dev': { 'square': '1:1', 'tall': '9:16', 'wide': '16:9', 'custom': 'custom' },
+        'black-forest-labs/flux-2-pro': { 'square': '1:1', 'tall': '9:16', 'wide': '16:9', 'custom': 'custom' },
         'bytedance/seedream-3': { 'square': '1:1', 'tall': '9:16', 'wide': '16:9' },
         'google/imagen-4-fast': { 'square': '1:1', 'tall': '9:16', 'wide': '16:9' },
         'google/imagen-4': { 'square': '1:1', 'tall': '9:16', 'wide': '16:9' },
-        'google/imagen-4-ultra': { 'square': '1:1', 'tall': '9:16', 'wide': '16:9' }
+        'google/imagen-4-ultra': { 'square': '1:1', 'tall': '9:16', 'wide': '16:9' },
+        'bytedance/seedream-4.5': { 'square': '1:1', 'tall': '9:16', 'wide': '16:9' },
+        'google/nano-banana-pro': { 'square': '1:1', 'tall': '9:16', 'wide': '16:9', '4:3': '4:3', '3:4': '3:4' }
     };
     if (!dimensionsMap[imageModel]) {
         throw new Error(`Unsupported image model for text to image generation: ${imageModel}`);

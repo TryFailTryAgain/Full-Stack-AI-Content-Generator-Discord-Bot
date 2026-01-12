@@ -8,8 +8,8 @@
 /* Getting required modules */
 const { SlashCommandBuilder, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, Events } = require('discord.js');
 const fs = require('fs');
-const { generateImage, generateImageToImage } = require('../../functions/image_functions.js');
-const { collectUserInput, collectImageAndPrompt, collectImage } = require('../../functions/helperFunctions.js');
+const { generateImage, generateImageToImage, generateImageEdit } = require('../../functions/image_functions.js');
+const { collectUserInput, collectImageAndPrompt, collectImage, collectImagesAndPrompt, collectImages } = require('../../functions/helperFunctions.js');
 const image = require('./image.js');
 
 module.exports = {
@@ -115,9 +115,9 @@ module.exports = {
                     await sendImages(interaction, images);
 
                 } else if (actionType.toLowerCase() === 'edit-image') {
-                    const { imageURL, prompt } = await collectImageAndPrompt(interaction, 'Please send the image you want to edit and enter your how and what you want changed below it in one single message:');
+                    const { imageURLs, prompt } = await collectImagesAndPrompt(interaction, 'Please send the image(s) you want to edit (up to 4 images) and enter how/what you want changed below them in one single message:');
                     const images = await generateImageEdit({
-                        image: imageURL,
+                        images: imageURLs,
                         instructions: prompt,
                         ImageEdit_Model: model,
                         userID: interaction.user.id
@@ -125,9 +125,9 @@ module.exports = {
                     await sendImages(interaction, images);
 
                 } else if (actionType.toLowerCase() === 'img2img') {
-                    const { imageURL, prompt } = await collectImageAndPrompt(interaction, 'Please send the base image and enter your prompt below it in one single message:');
+                    const { imageURLs, prompt } = await collectImagesAndPrompt(interaction, 'Please send the base image(s) (up to 4 images) and enter your prompt below them in one single message:');
                     const images = await generateImageToImage({
-                        image: imageURL,
+                        images: imageURLs,
                         userInput: prompt,
                         negativePrompt: '',
                         Image2Image_Model: model,

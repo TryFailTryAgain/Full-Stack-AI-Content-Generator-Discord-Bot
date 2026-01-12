@@ -10,8 +10,7 @@ const { OpusEncoder } = require('@discordjs/opus');
 const { spawn } = require('child_process');
 const WebSocket = require('ws');
 const state = require('./voiceGlobalState.js');
-const { filterCheckThenFilterString } = require('../helperFunctions.js');
-const { injectMessage, cancelResponse, startSilenceStream, stopSilenceStream } = require('./openaiControl');
+const { cancelResponse, startSilenceStream, stopSilenceStream } = require('./openaiControl.js');
 
 // Custom PCM-16LE mono sum-and-average mixer
 class PCMMonoMixer {
@@ -307,10 +306,12 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, intera
             console.log(`--User ${userId} started speaking, but voice chat is shutting down. Ignoring audio input.`);
             return;
         }
-        // If we are in no interruptions mode, just ignore this event.
+        // If we are in no interruptions mode and the AI is currently speaking,
+        // we still ignore this as an interruption signal. We will continue to
+        // capture audio only if desired by upstream logic. Interruption is now
+        // driven solely by the Realtime API speech_started event.
         if (noInterruptions && currentAudioState.isPlaying) {
             console.log(`-No interruptions mode active - allowing AI to finish speaking`);
-            return;
         }
 
         // If user is already being processed, don't create another pipeline
@@ -346,27 +347,10 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, intera
             timestamp: Date.now()
         });
 
-        // On each PCM chunk, run interruption logic then feed to mixer
-        let firstPass = true;
+        // On each PCM chunk, feed directly to mixer. Interruption is handled by
+        // the Realtime API's VAD via input_audio_buffer.speech_started.
         pcmStream.on('data', chunk => {
             if (!activeSpeakers.has(userId) || state.isVoiceChatShuttingDown) return;
-            const speakerData = activeSpeakers.get(userId);
-            // interruption cancel & announce on first chunk after delay
-            if (firstPass && (Date.now() - speakerData.timestamp) > process.env.VOICE_CHAT_INTERRUPTION_DELAY) {
-                if (currentAudioState.responseItemId && currentAudioState.isPlaying) {
-                    cancelResponse(ws);
-                    truncateAudio(ws, currentAudioState.responseItemId);
-                }
-                // Only announce if different speaker than last time
-                if (state.lastSpeakerId !== userId) {
-                    filterCheckThenFilterString(interaction.guild.members.cache.get(userId).displayName)
-                        .then(name => injectMessage(ws, `Now speaking: ${name}`, "user"))
-                        .catch(console.error);
-                    state.lastSpeakerId = userId;
-                }
-                firstPass = false;
-            }
-            // feed PCM directly into mixer
             mixer.updateBuffer(userId, chunk);
         });
 
@@ -408,6 +392,26 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, intera
             activeSpeakers.delete(userId);
         }
     }
+
+    // Listen for server-side speech detection and use it to drive interruption behavior
+    ws.on('message', (message) => {
+        try {
+            const serverMessage = JSON.parse(message);
+            if (serverMessage.type === 'input_audio_buffer.speech_started') {
+                console.log('--Realtime VAD detected speech_started');
+                if (state.isVoiceChatShuttingDown) return;
+
+                // Only interrupt if we are allowed to interrupt
+                if (!noInterruptions && currentAudioState.responseItemId && currentAudioState.isPlaying) {
+                    console.log('-Interrupting current assistant audio due to speech_started');
+                    cancelResponse(ws);
+                    truncateAudio(ws, currentAudioState.responseItemId);
+                }
+            }
+        } catch (err) {
+            // Ignore non-JSON or unrelated messages
+        }
+    });
 }
 
 

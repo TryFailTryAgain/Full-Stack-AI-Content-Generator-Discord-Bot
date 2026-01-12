@@ -1,24 +1,24 @@
 const imageFunctions = require('../image_functions.js');
 const { filterCheckThenFilterString } = require('../helperFunctions.js');
+const { moderateContent } = require('../moderation.js');
 
 // Openai sdk function call definition for generating images
-const toolDef_generateImage =
-{
-    "type": "function",
-    "name": "generate_image",
-    "description": "Generate an image based on the provided image prompt.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "prompt": {
-                "type": "string",
-                "description": "The input prompt to generate an image from. Should be detailed and descriptive."
-            }
-        },
-        "required": [
-            "prompt"
-        ],
-        "additionalProperties": false
+const toolDef_generateImage = {
+    type: "function",
+    function: {
+        name: "generate_image",
+        description: "Generate an image based on the provided image prompt.",
+        parameters: {
+            type: "object",
+            properties: {
+                prompt: {
+                    type: "string",
+                    description: "The input prompt to generate an image from. Should be detailed and descriptive."
+                }
+            },
+            required: ["prompt"],
+            additionalProperties: false
+        }
     }
 };
 
@@ -31,6 +31,12 @@ async function generate_image_tool(functionCall, interaction) {
         // Filter the prompt for profanity or banned words
         const filteredPrompt = await filterCheckThenFilterString(prompt);
         console.log("Filtered prompt:", filteredPrompt);
+        // Check for flagged content using moderation
+        const isFlagged = await moderateContent({ text: filteredPrompt });
+        if (isFlagged) {
+            console.warn('Prompt flagged by moderation, not generating image.');
+            return null;
+        }
         // Generate the image using default settings from the environment variables
         const imageBuffer = await imageFunctions.generateImage({
             userInput: filteredPrompt,

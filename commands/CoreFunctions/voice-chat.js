@@ -7,10 +7,10 @@
 const { SlashCommandBuilder, ChannelType } = require('discord.js');
 const { followUpEphemeral } = require('../../functions/helperFunctions.js');
 const { VoiceConnectionStatus } = require('@discordjs/voice');
-const { handleJoinVoiceChannel, gracefulDisconnect } = require('../../functions/voice/channelConnection.js');
-const { setupRealtimeVoiceWS, updateSessionParams, injectMessageGetResponse } = require('../../functions/voice/openaiControl.js');
-const { streamOpenAIAudio, streamUserAudioToOpenAI } = require('../../functions/voice/audioStreaming.js');
-const { setupVoiceChatTimeLimit } = require('../../functions/voice/sessionManagement.js');
+const { handleJoinVoiceChannel, gracefulDisconnect } = require('../../functions/voice_chat/channelConnection.js');
+const { setupRealtimeVoiceWS, updateSessionParams, injectMessageGetResponse } = require('../../functions/voice_chat/openaiControl.js');
+const { streamOpenAIAudio, streamUserAudioToOpenAI } = require('../../functions/voice_chat/audioStreaming.js');
+const { setupVoiceChatTimeLimit } = require('../../functions/voice_chat/sessionManagement.js');
 const { filterCheckThenFilterString } = require('../../functions/helperFunctions.js');
 const { toolDef_generateImage } = require('../../functions/tools/imageTool.js');
 

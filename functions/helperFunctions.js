@@ -158,6 +158,51 @@ async function collectImage(interaction, promptMessage) {
     return imageURL;
 }
 
+// Collect multiple images and a prompt from a single Discord message
+async function collectImagesAndPrompt(interaction, promptMessage, maxImages = 4) {
+    await interaction.followUp({ content: promptMessage, ephemeral: true });
+    const filter = m => m.author.id === interaction.user.id && (m.attachments.size > 0 || m.content.length > 0);
+    const collected = await interaction.channel.awaitMessages({ filter, max: 1, time: 120000 });
+    if (collected.size === 0) {
+        await interaction.followUp({ content: 'Timed out waiting for user input.', ephemeral: true });
+        throw new Error('Timed out waiting for user input.');
+    }
+    const message = collected.first();
+    // Collect all image URLs from attachments (up to maxImages)
+    const imageURLs = [];
+    message.attachments.forEach(attachment => {
+        if (imageURLs.length < maxImages && attachment.contentType?.startsWith('image/')) {
+            imageURLs.push(attachment.url);
+        }
+    });
+    const content = message.content;
+    return { imageURLs, prompt: content };
+}
+
+// Collect multiple images from a single Discord message
+async function collectImages(interaction, promptMessage, maxImages = 4) {
+    await interaction.followUp({ content: promptMessage, ephemeral: true });
+    const filter = m => m.author.id === interaction.user.id && m.attachments.size > 0;
+    const collected = await interaction.channel.awaitMessages({ filter, max: 1, time: 120000 });
+    if (collected.size === 0) {
+        await interaction.followUp({ content: 'Timed out waiting for image upload. Please re-run the command and try again.', ephemeral: true });
+        throw new Error('Timed out waiting for image upload.');
+    }
+    const message = collected.first();
+    // Collect all image URLs from attachments (up to maxImages)
+    const imageURLs = [];
+    message.attachments.forEach(attachment => {
+        if (imageURLs.length < maxImages && attachment.contentType?.startsWith('image/')) {
+            imageURLs.push(attachment.url);
+        }
+    });
+    if (imageURLs.length === 0) {
+        await interaction.followUp({ content: 'No valid images found. Please upload image files.', ephemeral: true });
+        throw new Error('No valid images found.');
+    }
+    return imageURLs;
+}
+
 async function sendImages(interaction, images) {
     for (const image of images) {
         await interaction.followUp({ files: [image] });
@@ -179,5 +224,7 @@ module.exports = {
     collectUserInput,
     collectImageAndPrompt,
     collectImage,
+    collectImagesAndPrompt,
+    collectImages,
     sendImages,
 };
