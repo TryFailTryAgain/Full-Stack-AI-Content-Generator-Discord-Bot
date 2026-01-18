@@ -80,33 +80,84 @@
     - node .
 
 ## Settings for customization via environment variables and in .env files
--This is NOT a full list and other more detailed customizations are not listed. See .env.defaults-
 
 [Image command settings]
-- IMAGE_MODEL: model for text-to-image generation (e.g., black-forest-labs/flux-dev)
-- IMAGE_PROMPT_MODEL: LLM for prompt optimization (e.g., gpt-4o-mini)
+- IMAGE_MODEL: model for text-to-image generation (e.g., black-forest-labs/flux-2-dev)
+- IMAGE_IMAGE2IMAGE_MODEL: model used for image-to-image transformations
+- IMAGE_IMAGEEDIT_MODEL: model used for image editing operations
 - IMAGE_UPSCALE_MODEL: model for upscaling outputs (e.g., nightmareai/real-esrgan)
+- IMAGE_PROMPT_MODEL: LLM for prompt optimization (e.g., gpt-4.1-mini)
+- IMAGE_OPTIMIZER_TEMPERATURE: temperature setting for prompt optimization LLM
+- IMAGE_SYSTEM_MESSAGE: system prompt for the image prompt generator/improver
+- IMAGE_USER_MESSAGE: user message template for prompt generation
+- IMAGE_CHAT_REFINEMENT_SYSTEM_MESSAGE: system prompt for refining prompts based on user feedback
+- IMAGE_CHAT_REFINEMENT_USER_MESSAGE: template for handling image refinement requests
 
 [Advanced image command settings]
 - IMAGE_ADV_TEXT2IMG_MODELS: comma-separated list of available text-to-image models
-- IMAGE_ADV_IMG2IMG_MODELS: comma-separated list of img2img models
+- IMAGE_ADV_IMG2IMG_MODELS: comma-separated list of image-to-image models
 - IMAGE_ADV_UPSCALE_MODELS: comma-separated list of upscaling models
 - IMAGE_ADV_EDIT_MODELS: comma-separated list of image edit models
 
 [Chat command settings]
-- CHAT_MODEL: LLM used for chat responses (e.g., gpt-4o-mini)
+- CHAT_MODEL: LLM used for chat responses (e.g., gpt-4.1-mini)
+- CHAT_TEMPERATURE: temperature setting for chat model responses
+- CHAT_MAX_TOKENS: maximum tokens per chat response
 - CHAT_SYSTEM_MESSAGE: base system prompt for the chat assistant
-- CHAT_USER_MESSAGE: optional user message template for chat commands
 
 [Voice chat command settings]
 - VOICE_CHAT_MODEL_URL: WebSocket URL for real-time voice API
 - VOICE_CHAT_TIME_LIMIT: time limit for voice sessions in seconds
 - VOICE_CHAT_INTERRUPTION_DELAY: delay before AI is interrupted (ms)
+- VOICE_CHAT_IMAGE_MODEL: model used for image generation in voice chat
+- OPENAI_VOICE_CHAT_INSTRUCTIONS: system instructions for voice AI personality and behavior
+- OPENAI_VOICE_CHAT_DISCONNECT_MESSAGE: message AI uses when session time expires
+- OPENAI_VOICE_CHAT_GREETING: initial greeting message when AI joins voice chat
+- OPENAI_VOICE_CHAT_VOICE: voice selection for OpenAI TTS (e.g., alloy)
+- OPENAI_VOICE_CHAT_TEMPERATURE: temperature for voice model responses
+- OPENAI_VOICE_CHAT_RESPONSE_EAGERNESS: how quickly AI responds (auto/high/low)
+- OPENAI_VOICE_CHAT_MAX_TOKENS: maximum tokens per voice response (inf for unlimited)
+
+[Voice chat TTS settings]
+- OPENAI_TRANSCRIPTION_MODEL: model for speech-to-text transcription
+- OPENAI_STT_TRANSCRIPTION_PROMPT: optional prompt to guide transcription
+- OPENAI_STT_TRANSCRIPTION_LANGUAGE: language code for transcription (e.g., en)
+- OPENAI_TTS_LLM_MODEL: LLM model used for text generation in TTS mode
+- OPENAI_TTS_MODEL: text-to-speech model for voice synthesis
+- OPENAI_TTS_VOICE: voice selection for TTS output
+- OPENAI_TTS_INSTRUCTIONS: instructions for TTS voice characteristics
+- VOICE_CHAT_TTS_MAX_TOKENS: maximum tokens per TTS response
+- VOICE_CHAT_TTS_TIME_LIMIT: time limit for TTS voice sessions in seconds
+- VOICE_CHAT_TTS_TEMPERATURE: temperature for TTS LLM responses
+- VOICE_CHAT_TTS_CONVERSATION_MAX_MESSAGES: max messages to retain in conversation history (inf for unlimited)
+- VOICE_CHAT_TTS_TRANSCRIPTION_MODE: transcription processing mode (realtime/batch)
+- VOICE_CHAT_TTS_SILENCE_STREAM_ENABLED: enable silence padding in audio stream
+- VOICE_CHAT_TTS_SILENCE_PADDING_MS: silence padding duration in milliseconds
+- VOICE_CHAT_TTS_SILENCE_PACKET_MS: packet interval for silence stream
+- VOICE_CHAT_TTS_USE_VAD_EVENTS: enable voice activity detection events
+- VOICE_CHAT_TTS_INTERRUPTION_DELAY: delay before user can interrupt AI speech (ms)
+- VOICE_CHAT_TTS_PROVIDER: TTS service provider (openai/other)
+- VOICE_CHAT_TTS_LLM_BACKEND: backend type for LLM processing (chat/completion)
+- VOICE_CHAT_TTS_REASONING_LEVEL: reasoning level for LLM (minimal/standard/extended)
 
 [Ad-lib story settings]
-- ADLIB_PROMPT_MODEL: LLM model for story generation (e.g., gpt-4o-mini)
+- ADLIB_PROMPT_MODEL: LLM model for story generation (e.g., gpt-4.1-mini)
+
+[Moderation settings]
+- MODERATION_OPENAI_MODERATION: enable OpenAI moderation API for content safety (true/false)
+- MODERATION_BAD_WORDS_FILTER: enable bad-words profanity filter (true/false)
+- MODERATION_BAD_WORDS_CUSTOM_LIST: comma-separated list of custom words to block
+- MODERATION_BAD_WORDS_WHITELIST: comma-separated list of words to allow/unblock
+- MODERATION_OPENAI_REALTIME: enable moderation for voice chat responses (adds latency)
+- MODERATION_REPLICATE_IMAGE_SAFTY_CHECK: enable image safety checks via Replicate
 
 [Advanced options]
 - ADVCONF_SAVE_IMAGES: enable saving generated images locally (true/false)
-- ADVCONF_SEND_IMAGES_AS: format for sending images (jpeg/png)
+- ADVCONF_SAVE_IMAGES_AS: format for saving images to disk (png/jpeg)
+- ADVCONF_SEND_IMAGES_AS: format for sending images to Discord (jpeg/png)
 - ADVCONF_JPEG_QUALITY: quality level for JPEG images (1–100)
+- ADVCONF_SALT: salt value for user ID hashing (change for added security)
+- ADVCONF_OPENAI_CHAT_BASE_URL: base URL for OpenAI chat API endpoint
+- ADVCONF_OPENAI_IMAGE_BASE_URL: base URL for OpenAI image API endpoint
+- ADVCONF_OPENAI_VOICE_CHAT_SYSTEM_LOGGING: enable detailed system logging for voice chat
+- DEPLOY_COMMANDS_ON_STARTUP: automatically deploy slash commands when bot starts (true/false)
