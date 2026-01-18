@@ -49,10 +49,20 @@ async function generateImage({ userInput, negativePrompt, imageModel, dimensions
     // Creates an empty array to store the image buffers in
     let imageBuffer = [];
 
-    // Moderate the user input and negative prompt before proceeding
-    const textToModerate = [userInput, negativePrompt].filter(Boolean).join(' ');
-    if (await moderateContent({ text: textToModerate }).then(r => r.flagged)) {
-        throw new Error("The provided image prompt or negative prompt was flagged by the moderation system.");
+    // Moderate the user input before proceeding
+    const userInputModResult = await moderateContent({ text: userInput });
+    if (userInputModResult.flagged) {
+        throw new Error("The provided image prompt was flagged by the moderation system.");
+    }
+    userInput = userInputModResult.cleanedText;
+
+    // Moderate the negative prompt if provided
+    if (negativePrompt) {
+        const negativePromptModResult = await moderateContent({ text: negativePrompt });
+        if (negativePromptModResult.flagged) {
+            throw new Error("The provided negative prompt was flagged by the moderation system.");
+        }
+        negativePrompt = negativePromptModResult.cleanedText;
     }
 
     // Get the correct dimensions for the image
@@ -62,7 +72,6 @@ async function generateImage({ userInput, negativePrompt, imageModel, dimensions
 
     switch (imageModel) {
         case 'gpt-image-1':
-            const imageModerationLevel = (process.env.ADVCONF_REPLICATE_IMAGE_SAFTY_CHECK === 'false') ? 'low' : 'auto';
             imageBuffer = await generateImageViaGPTImageGen1({
                 userInput: userInput,
                 trueDimensions: trueDimensions,
@@ -208,10 +217,27 @@ async function generateImageToImage({ images, image, userInput, negativePrompt, 
     // Support both single image (legacy) and multiple images
     const inputImages = images || (image ? [image] : []);
     
-    // Moderate the images and instructions before proceeding
+    // Moderate the user input before proceeding
+    const userInputModResult = await moderateContent({ text: userInput });
+    if (userInputModResult.flagged) {
+        throw new Error("The provided instructions were flagged by the moderation system.");
+    }
+    userInput = userInputModResult.cleanedText;
+
+    // Moderate the negative prompt if provided
+    if (negativePrompt) {
+        const negativePromptModResult = await moderateContent({ text: negativePrompt });
+        if (negativePromptModResult.flagged) {
+            throw new Error("The provided negative prompt was flagged by the moderation system.");
+        }
+        negativePrompt = negativePromptModResult.cleanedText;
+    }
+    
+    // Check images for moderation
     for (const img of inputImages) {
-        if (await moderateContent({ image: img, text: userInput + ' ' + negativePrompt })) {
-            throw new Error("The provided image or instructions were flagged by the moderation system.");
+        const imgModResult = await moderateContent({ image: img });
+        if (imgModResult.flagged) {
+            throw new Error("The provided image was flagged by the moderation system.");
         }
     }
 
@@ -297,10 +323,19 @@ async function generateImageEdit({ images, image, instructions, ImageEdit_Model,
     // Support both single image (legacy) and multiple images
     const inputImages = images || (image ? [image] : []);
     
-    // Moderate the images and instructions before proceeding
+    // Moderate the instructions before proceeding
+    const modResult = await moderateContent({ text: instructions });
+    if (modResult.flagged) {
+        throw new Error("The provided instructions were flagged by the moderation system.");
+    }
+    // Use cleaned text from moderation
+    instructions = modResult.cleanedText;
+    
+    // Check images for moderation
     for (const img of inputImages) {
-        if (await moderateContent({ image: img, text: instructions })) {
-            throw new Error("The provided image or instructions were flagged by the moderation system.");
+        const imgModResult = await moderateContent({ image: img });
+        if (imgModResult.flagged) {
+            throw new Error("The provided image was flagged by the moderation system.");
         }
     }
     
@@ -375,9 +410,10 @@ async function generateImageEdit({ images, image, instructions, ImageEdit_Model,
 
 async function upscaleImage(imageBuffer, upscaleModel) {
     let upscaledImageBuffer = [];
-    // Moderate the image and instructions before proceeding
-    if (await moderateContent({ image: imageBuffer })) {
-        throw new Error("The provided image or instructions were flagged by the moderation system.");
+    // Moderate the image before proceeding
+    const modResult = await moderateContent({ image: imageBuffer });
+    if (modResult.flagged) {
+        throw new Error("The provided image was flagged by the moderation system.");
     }
 
     switch (upscaleModel) {
@@ -405,9 +441,13 @@ async function promptOptimizer(userInput, userID) {
     let response = null;
 
     // Moderate user input before processing
-    if (await moderateContent({ text: userInput }).then(r => r.flagged)) {
+    const modResult = await moderateContent({ text: userInput });
+    if (modResult.flagged) {
         throw new Error("The provided text was flagged by the moderation system.");
     }
+    // Use cleaned text from moderation
+    userInput = modResult.cleanedText;
+    
     try {
         response = await openaiChat.chat.completions.create({
             model: Prompt_Model,
@@ -439,9 +479,12 @@ async function promptOptimizer(userInput, userID) {
     let optimized_Prompt = response.choices[0].message.content;
     
     // Moderate the optimized prompt from the AI. Just in case the AI is unhappy today
-    if (await moderateContent({ text: optimized_Prompt }).then(r => r.flagged)) {
+    const optimizedModResult = await moderateContent({ text: optimized_Prompt });
+    if (optimizedModResult.flagged) {
         throw new Error("The AI-generated optimized prompt was flagged by the moderation system.");
     }
+    // Use cleaned text from moderation
+    optimized_Prompt = optimizedModResult.cleanedText;
     return optimized_Prompt;
 }
 
@@ -456,9 +499,12 @@ async function adaptImagePrompt(currentPrompt, refinementRequest, userID) {
     const userMessageTemplate = process.env.IMAGE_CHAT_REFINEMENT_USER_MESSAGE;
 
     // Moderate the refinement request before processing
-    if (await moderateContent({ text: refinementRequest }).then(r => r.flagged)) {
+    const modResult = await moderateContent({ text: refinementRequest });
+    if (modResult.flagged) {
         throw new Error("The refinement request was flagged by the moderation system.");
     }
+    // Use cleaned text from moderation
+    refinementRequest = modResult.cleanedText;
 
     // Generate a hashed user ID to send to openai instead of the original user ID
     const hashedUserID = await generateHashedUserId(userID);
@@ -501,9 +547,12 @@ async function adaptImagePrompt(currentPrompt, refinementRequest, userID) {
     }
 
     // Moderate the AI-generated refined prompt
-    if (await moderateContent({ text: refinedPrompt }).then(r => r.flagged)) {
+    const refinedModResult = await moderateContent({ text: refinedPrompt });
+    if (refinedModResult.flagged) {
         throw new Error("The AI-generated refined prompt was flagged by the moderation system.");
     }
+    // Use cleaned text from moderation
+    refinedPrompt = refinedModResult.cleanedText;
 
     console.log("Refined prompt:\n", refinedPrompt);
     return refinedPrompt;

@@ -51,6 +51,8 @@ async function ensureSafeContent(text) {
         if (modResult.flagged) {
             throw new Error('Content flagged by moderation.');
         }
+        // Use cleaned text from moderation (bad-words filter applied)
+        return modResult.cleanedText;
     }
     return text;
 }

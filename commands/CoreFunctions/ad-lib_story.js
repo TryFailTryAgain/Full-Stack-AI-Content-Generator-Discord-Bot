@@ -61,6 +61,8 @@ module.exports = {
                     });
                     return;
                 }
+                // Use the cleaned text from moderation (bad-words filter applied)
+                userInput = modResult.cleanedText;
             } catch (error) {
                 console.error(error);
                 await interaction.deleteReply();
@@ -143,62 +145,90 @@ module.exports = {
 
         /* Button Handling */
         // Detect when the button is clicked
-        const ButtonFilter = (interaction) => interaction.customId === 'showModalButton';
-        const collector = interaction.channel.createMessageComponentCollector({ ButtonFilter, time: 60_000 });
+        const ButtonFilter = (i) => i.customId === 'showModalButton' && i.user.id === interaction.user.id;
+        const collector = interaction.channel.createMessageComponentCollector({ filter: ButtonFilter, time: 300_000 });
 
         // Displays the modal to the user on button click
-        collector.on('collect', async (interaction) => {
-            await interaction.showModal(modal);
-            //requestWordsButton.setDisabled(true); // Disables the button so it can't be clicked again
-        });
-        /* End Button Handling */
-
-        // Holds the user input data for each set of words
-        let userNouns, userVerbs, userAdjectives, userAdverbs;
-
-
-        /* Modal Handling */
-        interaction.client.on(Events.InteractionCreate, async interaction => {
-            if (!interaction.isModalSubmit()) return;
-            // Gets the data entered by the user
-            userNouns = interaction.fields.getTextInputValue('userNouns');
-            userVerbs = interaction.fields.getTextInputValue('userVerbs');
-            userAdjectives = interaction.fields.getTextInputValue('userAdjectives');
-            userAdverbs = interaction.fields.getTextInputValue('userAdverbs');
+        collector.on('collect', async (buttonInteraction) => {
+            await buttonInteraction.showModal(modal);
             
-            // Moderate user submitted words using OpenAI moderation if enabled
-            if (moderationEnabled) {
-                console.log("Moderating submitted words...");
-                const allWords = [userNouns, userVerbs, userAdjectives, userAdverbs].join(' ');
-                try {
-                    const modResult = await moderateContent({ text: allWords });
-                    if (modResult.flagged) {
-                        await interaction.reply({
-                            content: "Your submitted words did not pass moderation. Please try again with different content.",
-                            ephemeral: true
+            // Wait for the modal submission
+            try {
+                const modalSubmit = await buttonInteraction.awaitModalSubmit({ time: 300_000, filter: (i) => i.customId === `adlibModal-${interaction.user.id}` });
+                
+                // Gets the data entered by the user
+                let userNouns = modalSubmit.fields.getTextInputValue('userNouns');
+                let userVerbs = modalSubmit.fields.getTextInputValue('userVerbs');
+                let userAdjectives = modalSubmit.fields.getTextInputValue('userAdjectives');
+                let userAdverbs = modalSubmit.fields.getTextInputValue('userAdverbs');
+                
+                // Defer the reply first to avoid timeout
+                await modalSubmit.deferReply();
+                
+                // Moderate user submitted words using OpenAI moderation if enabled
+                if (moderationEnabled) {
+                    console.log("Moderating submitted words...");
+                    try {
+                        // Moderate each field separately
+                        const nounsModResult = await moderateContent({ text: userNouns });
+                        if (nounsModResult.flagged) {
+                            await modalSubmit.editReply({
+                                content: "Your submitted nouns did not pass moderation. Please try again with different content."
+                            });
+                            return;
+                        }
+                        userNouns = nounsModResult.cleanedText;
+
+                        const verbsModResult = await moderateContent({ text: userVerbs });
+                        if (verbsModResult.flagged) {
+                            await modalSubmit.editReply({
+                                content: "Your submitted verbs did not pass moderation. Please try again with different content."
+                            });
+                            return;
+                        }
+                        userVerbs = verbsModResult.cleanedText;
+
+                        const adjectivesModResult = await moderateContent({ text: userAdjectives });
+                        if (adjectivesModResult.flagged) {
+                            await modalSubmit.editReply({
+                                content: "Your submitted adjectives did not pass moderation. Please try again with different content."
+                            });
+                            return;
+                        }
+                        userAdjectives = adjectivesModResult.cleanedText;
+
+                        const adverbsModResult = await moderateContent({ text: userAdverbs });
+                        if (adverbsModResult.flagged) {
+                            await modalSubmit.editReply({
+                                content: "Your submitted adverbs did not pass moderation. Please try again with different content."
+                            });
+                            return;
+                        }
+                        userAdverbs = adverbsModResult.cleanedText;
+                    } catch (error) {
+                        console.error('Moderation error:', error);
+                        await modalSubmit.editReply({
+                            content: "An error occurred during moderation. Please try again."
                         });
                         return;
                     }
-                } catch (error) {
-                    console.error('Moderation error:', error);
-                    await interaction.reply({
-                        content: "An error occurred during moderation. Please try again.",
-                        ephemeral: true
-                    });
-                    return;
+                    console.log("The user inputted words after moderation and cleaning are: \n" + '[NOUNS] : ' + userNouns + '\n' + '[VERBS] : ' + userVerbs + '\n' + '[ADJECTIVES] : ' + userAdjectives + '\n' + '[ADVERBS] : ' + userAdverbs + '\n');
+                } else {
+                    console.log("The user inputted words without moderation are: \n" + '[NOUNS] : ' + userNouns + '\n' + '[VERBS] : ' + userVerbs + '\n' + '[ADJECTIVES] : ' + userAdjectives + '\n' + '[ADVERBS] : ' + userAdverbs + '\n');
                 }
-                console.log("The user inputted words after moderation check are: \n" + '[NOUNS] : ' + userNouns + '\n' + '[VERBS] : ' + userVerbs + '\n' + '[ADJECTIVES] : ' + userAdjectives + '\n' + '[ADVERBS] : ' + userAdverbs + '\n');
-            } else {
-                console.log("The user inputted words without moderation are: \n" + '[NOUNS] : ' + userNouns + '\n' + '[VERBS] : ' + userVerbs + '\n' + '[ADJECTIVES] : ' + userAdjectives + '\n' + '[ADVERBS] : ' + userAdverbs + '\n');
+                
+                // Replaces the placeholders in the story with the user input
+                const userFilledStory = await replacePlaceholders(story, userNouns, userVerbs, userAdjectives, userAdverbs);
+                
+                // Sends the resulting story back to the user
+                await modalSubmit.editReply({
+                    content: 'Congrats! Your ad-Lib story is as follows: \n' + userFilledStory
+                });
+            } catch (error) {
+                console.error('Error handling modal submit:', error);
             }
-            // Replaces the placeholders in the story with the user input
-            const userFilledStory = await replacePlaceholders(story, userNouns, userVerbs, userAdjectives, userAdverbs);
-            // Sends the resulting story back to the user
-            await interaction.reply({
-                content: 'Congrats! Your ad-Lib story is as follows: \n' + userFilledStory
-            });
         });
-        /* End Modal Handling */
+        /* End Button Handling */
     }
 };
 
