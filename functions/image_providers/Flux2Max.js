@@ -89,8 +89,8 @@ async function generateImageToImageViaReplicate_Flux2Max({ images, image, userIn
             prompt: userInput,
             input_images: inputImages, // Flux 2 Max uses input_images array (max 8)
             aspect_ratio: 'match_input_image', // Match the input image aspect ratio
-            output_format: output_format || 'webp',
-            output_quality: output_quality || 80
+            output_format: output_format || 'png',
+            output_quality: output_quality || 100
         };
 
         // Add optional parameters only if provided

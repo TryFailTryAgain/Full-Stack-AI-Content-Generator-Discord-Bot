@@ -86,8 +86,8 @@ async function generateImageToImageViaReplicate_Flux2Klein4b({ images, image, us
             prompt: userInput,
             images: inputImages, // Flux 2 Klein 4B uses images array (max 5)
             aspect_ratio: 'match_input_image', // Match the input image aspect ratio
-            output_format: output_format || 'jpg',
-            output_quality: output_quality || 80,
+            output_format: output_format || 'png',
+            output_quality: output_quality || 100,
             output_megapixels: '2',
             go_fast: go_fast !== undefined ? go_fast : false,
             disable_safety_checker: disable_safety_checker

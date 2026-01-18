@@ -89,8 +89,8 @@ async function generateImageToImageViaReplicate_Flux2Klein9bBase({ images, image
             prompt: userInput,
             images: inputImages, // Flux 2 Klein 9B Base uses images array (max 5)
             aspect_ratio: 'match_input_image', // Match the input image aspect ratio
-            output_format: output_format || 'jpg',
-            output_quality: output_quality || 80,
+            output_format: output_format || 'png',
+            output_quality: output_quality || 100,
             output_megapixels: '2',
             go_fast: go_fast !== undefined ? go_fast : true,
             guidance: guidance !== undefined ? guidance : 4,
