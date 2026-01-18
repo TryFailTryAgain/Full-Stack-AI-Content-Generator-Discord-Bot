@@ -11,7 +11,6 @@ const { handleJoinVoiceChannel, gracefulDisconnect } = require('../../functions/
 const { setupRealtimeVoiceWS, updateSessionParams, injectMessageGetResponse } = require('../../functions/voice_chat/openaiControl.js');
 const { streamOpenAIAudio, streamUserAudioToOpenAI } = require('../../functions/voice_chat/audioStreaming.js');
 const { setupVoiceChatTimeLimit } = require('../../functions/voice_chat/sessionManagement.js');
-const { filterCheckThenFilterString } = require('../../functions/helperFunctions.js');
 const { toolDef_generateImage } = require('../../functions/tools/imageTool.js');
 
 module.exports = {
@@ -36,7 +35,7 @@ module.exports = {
 		const noInterruptions = interaction.options.getBoolean('no_interruptions') || false;
 		const channel = interaction.options.getChannel('channel');
 		// Build user list from the voice channel
-		const userList = await filterCheckThenFilterString(Array.from(channel.members.values()).map(member => member.nickname).join(', '));
+		const userList = Array.from(channel.members.values()).map(member => member.nickname || member.user.username).join(', ');
 		let connection;
 
 		// Configure session parameters for Voice Chat

@@ -1,59 +1,11 @@
 const ini = require('ini');
 const fs = require('fs');
-const Filter = require('bad-words');
-const filter = new Filter({ placeHolder: '*' }); // Modify the character used to replace bad words
 const Crypto = require('crypto');
 const sharp = require('sharp'); // Add sharp if not already imported
 
 // Helper function to read and parse ini files
 function getIniFileContent(filePath) {
     return ini.parse(fs.readFileSync(filePath, 'utf-8'));
-}
-
-async function filterCheck() {
-    const inputFilter = process.env.MODERATION_FILTER_NAUGHTY_WORDS.toLowerCase();
-
-    // Alert console if the profanity filter is enabled or disabled
-    if (inputFilter === 'true') {
-        return true;
-    } else if (inputFilter === 'false') {
-        return false;
-    } else {
-        throw new Error("The Filter_Naughty_Words setting in settings.ini is not set to true or false. Please set it to true or false");
-    }
-}
-
-// Function to filter the prompt for profanity and other words provided in node_modules/bad-words/lib/lang.json file
-// TODO: Add a section to add custom words to the filter in the settings config that will be imported here
-async function filterString(input) {
-    try {
-        console.log("--Filtering string--\n");
-        input = (filter.clean(input)).toString();
-        // Removes the asterisks that the filter replaces the bad words with. Somehow this is not built into the filter to my knowledge
-        input = input.replace(/\*/g, '');
-        console.log("-The string after filtering is:\n" + input + "\n");
-    } catch (error) {
-        console.error(error);
-        // Throws another error to be caught when the function is called
-        throw new Error(`Error: ${error}`);
-    }
-    return input;
-}
-
-async function filterCheckThenFilterString(input) {
-    if (!input){
-        return "";
-    }
-    try {
-        const isFilterEnabled = await filterCheck();
-        if (isFilterEnabled) {
-            input = await filterString(input);
-        }
-    } catch (error) {
-        console.error(error);
-        throw new Error(`Error: ${error}`);
-    }
-    return input;
 }
 
 async function generateHashedUserId(userId) {
@@ -211,9 +163,6 @@ async function sendImages(interaction, images) {
 }
 
 module.exports = {
-    filterCheck,
-    filterString,
-    filterCheckThenFilterString,
     generateHashedUserId,
     getIniFileContent,
     deleteAndFollowUpEphemeral,

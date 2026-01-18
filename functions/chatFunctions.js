@@ -11,7 +11,6 @@ for (let key in imageFunctions) {
 }
 /* End required modules */
 const { OpenAI } = require('openai');
-const { moderateContent } = require('./moderation.js');
 
 // Validate API keys
 if (!process.env.API_KEY_OPENAI_CHAT || !process.env.API_KEY_OPENAI_IMAGE) {
@@ -27,8 +26,9 @@ openaiChat.baseURL = openaiChatBaseURL;
 const openaiImage = new OpenAI({ apiKey: process.env.API_KEY_OPENAI_IMAGE });
 openaiImage.baseURL = openaiImageBaseURL;
 
-// This is a profanity filter that will prevent the bot from passing profanity and other rude words
-console.log(`Profanity filter -- /Chat == ${filterCheck() ? 'ENABLED' : 'DISABLED'}`);
+// Log moderation status
+const moderationEnabled = (process.env.MODERATION_OPENAI_MODERATION || 'false').trim().toLowerCase() === 'true';
+console.log(`OpenAI Moderation -- /Chat == ${moderationEnabled ? 'ENABLED' : 'DISABLED'}`);
 
 // Get the model and parameters to pass to the LLM API
 function getChatSettings() {
@@ -43,14 +43,8 @@ function getChatSettings() {
 // Sends a chat message to a chatbot service and returns the response
 async function sendChatMessage(conversationHistory) {
     try {
-        // Moderation check: only check the most recent user message
+        // Conversation history is already moderated before calling this function
         console.log(conversationHistory);
-        // Find the last user message in the conversation history
-        const lastUserMsgObj = [...conversationHistory].reverse().find(msg => msg.role === 'user');
-        const lastUserMsg = lastUserMsgObj.content;
-        if (await moderateContent({ text: lastUserMsg })) {
-            throw new Error('Message/username flagged by moderation. Aborting chat request.');
-        }
 
         // Send the conversation history to OpenAI and get the response
         const chatSettings = getChatSettings();

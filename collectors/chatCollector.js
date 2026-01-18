@@ -1,5 +1,5 @@
 const { sendChatMessage } = require('../functions/chatFunctions.js');
-const { filterCheckThenFilterString } = require('../functions/helperFunctions.js');
+const { moderateContent } = require('../functions/moderation.js');
 
 let conversationHistory = [];
 let activeCollectors = new Map();
@@ -18,30 +18,36 @@ function startChatCollector(interaction, time) {
         // Get the user's display name/Nickname for the user within the server
         const member = m.guild.members.cache.get(m.author.id);
         const displayName = member.nickname ? member.nickname : member.user.username;
-        // Create the user's message and filter if enabled
+        // Create the user's message
         let userMessage = `Message from: ${displayName}. Message: ${m.content}`;
-        userMessage = await filterCheckThenFilterString(userMessage);
         let chatResponse = "";
 
-        // Add the user's message to the conversation history
+        // Moderate the message before adding to history
+        try {
+            const modResult = await moderateContent({ text: userMessage });
+            if (modResult.flagged) {
+                m.reply("Your message/username was flagged by the moderation system. This may be logged for review.");
+                return;
+            }
+            // Use cleaned text if bad-words filter modified it
+            userMessage = modResult.cleanedText;
+        } catch (error) {
+            console.error('Moderation error:', error);
+            m.reply("An error occurred during moderation. Please try again.");
+            return;
+        }
+
+        // Add the moderated/cleaned user's message to the conversation history
         conversationHistory.push({ "role": "user", "content": userMessage });
 
-        // Send the conversation history to the chatbot service and get the response, Filter the bot's response if filtering is enabled
+        // Send the conversation history to the chatbot service and get the response
         try {
             chatResponse = await sendChatMessage(conversationHistory);
         } catch (error) {
-            if (error.message.includes('flagged')) {
-                followUp(interaction, "Your message/username was flagged by the moderation system. This may be logged for review.");
-                // Remove the last user message from the conversation history since it was flagged
-                conversationHistory.pop();
-                return;
-            } else {
-                followUp(interaction, "An error occurred while sending/receiving the message to the chatbot service. Please try again later");
-                conversationHistory.pop();
-                return;
-            }
+            m.reply("An error occurred while sending/receiving the message to the chatbot service. Please try again later");
+            conversationHistory.pop();
+            return;
         }
-        chatResponse = await filterCheckThenFilterString(chatResponse);
 
         // Add the filtered bot's response to the conversation history
         conversationHistory.push({ role: "assistant", content: chatResponse });

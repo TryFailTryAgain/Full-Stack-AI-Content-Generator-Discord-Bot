@@ -49,8 +49,8 @@ module.exports = {
         let dimensions = interaction.options.getString('dimensions') || 'square';
         let imageModel = process.env.IMAGE_MODEL;
 
-        // Filter the user input for profanity or banned words
-        let userInput = await filterCheckThenFilterString(originalUserInput);
+        // Use the original user input - moderation is handled in generateImage
+        let userInput = originalUserInput;
 
         let imageBuffer = null;
         try {

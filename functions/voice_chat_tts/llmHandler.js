@@ -4,7 +4,6 @@
 */
 const { AttachmentBuilder } = require('discord.js');
 const { OpenAI } = require('openai');
-const { filterCheckThenFilterString } = require('../helperFunctions.js');
 const { moderateContent } = require('../moderation.js');
 const { toolDef_generateImage, generate_image_tool } = require('../tools/imageTool.js');
 const { toolDef_disconnectVoiceChat, disconnect_voice_chat_tool } = require('../tools/voiceDisconnectTool.js');
@@ -46,11 +45,14 @@ function sanitizeRoleName(name) {
 
 async function ensureSafeContent(text) {
     if (!text) return '';
-    const filtered = await filterCheckThenFilterString(text);
-    if (realtimeModerationEnabled && await moderateContent({ text: filtered })) {
-        throw new Error('Content flagged by moderation.');
+    // Check content with OpenAI moderation if realtime moderation is enabled
+    if (realtimeModerationEnabled) {
+        const modResult = await moderateContent({ text });
+        if (modResult.flagged) {
+            throw new Error('Content flagged by moderation.');
+        }
     }
-    return filtered;
+    return text;
 }
 
 async function runToolCall({ call, interaction, voiceToolMap = {} }) {

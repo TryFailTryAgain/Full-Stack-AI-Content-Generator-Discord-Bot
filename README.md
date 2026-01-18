@@ -10,7 +10,7 @@
 ## Features
   - Built-in moderation
     - Enabled by default to ensure a safer, more responsible deployment out of the box
-    - Actively detects, filters, and blocks inappropriate or harmful prompts in both text and image interactions
+    - Uses OpenAI's moderation API (`omni-moderation-latest` model) to detect and block inappropriate or harmful content
     - Helps prevent abuse making your community better for all
   - Real-time AI voice chat in Discord voice channels
     - Join any voice channel and have natural, real-time voice-voice conversations with openAI's realtime models
@@ -40,6 +40,7 @@
   - Join a specified voice channel to enable real-time voice conversations with an AI assistant
   - Optional 'no_interruptions' mode allows the AI to finish speaking even when users talk over it
   - Automatically detects and recognizes users in the voice channel
+  - Supports realtime function calling via voice
 - /voice-chat-tts
   - Just like /voice-chat, but uses speech to text, sent to an LLM, then the voice response is generated using text to speech in realtime
 - /ad-lib-story

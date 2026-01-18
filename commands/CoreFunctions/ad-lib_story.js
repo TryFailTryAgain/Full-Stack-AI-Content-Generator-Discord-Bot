@@ -8,8 +8,6 @@ const { SlashCommandBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, Event
 const fs = require('fs');
 const ini = require('ini');
 const OpenAI = require('openai');
-const Filter = require('bad-words');
-const filter = new Filter({ placeHolder: '*' });
 const { moderateContent } = require('../../functions/moderation');
 
 const openai = new OpenAI({ apiKey: process.env.API_KEY_OPENAI_CHAT });
@@ -17,13 +15,12 @@ const openai = new OpenAI({ apiKey: process.env.API_KEY_OPENAI_CHAT });
 const openaiChatBaseURL = process.env.ADVCONF_OPENAI_CHAT_BASE_URL;
 openai.baseURL = openaiChatBaseURL;
 
-
-// This is a profanity filter that will prevent the bot from passing profanity.
-// It can be enabled or disabled via environment variables.
-if (filterCheck()) {
-    console.log("Profanity filter -- /ad-lib-story == ENABLED");
+// Check if OpenAI moderation is enabled
+const moderationEnabled = (process.env.MODERATION_OPENAI_MODERATION || 'false').trim().toLowerCase() === 'true';
+if (moderationEnabled) {
+    console.log("OpenAI Moderation -- /ad-lib-story == ENABLED");
 } else {
-    console.log("Profanity filter -- /ad-lib-story == DISABLED");
+    console.log("OpenAI Moderation -- /ad-lib-story == DISABLED");
 }
 
 /* End Requirements & Setup */
@@ -49,28 +46,14 @@ module.exports = {
         // Editing with .editReply will remove the loading message and replace it with the new message
         await interaction.deferReply(); //Can not defer reply with a modal. Modal must come first
 
-        // Grabs the prompt if provided by the user and filter it if required
+        // Grabs the prompt if provided by the user and moderate it if required
         let userInput = interaction.options.getString('prompt');
-        // If there is a prompt then check for filtering and do it acordingly
+        // If there is a prompt then moderate it
         if (userInput) {
-            // Optionally filters the prompt if settings.ini - Filter_Naughty_Words is set to true
-            if (await filterCheck()) {
-                try {
-                    userInput = await filterString(userInput);
-                } catch (error) {
-                    console.error(error);
-                    await interaction.deleteReply();
-                    await interaction.followUp({
-                        content: "An error occurred while filtering the prompt. Please try again",
-                        ephemeral: true
-                    });
-                    return;
-                }
-            }
-            // Moderate the content after filtering
+            // Moderate the content using OpenAI moderation
             try {
-                const flagged = await moderateContent({ text: userInput });
-                if (flagged) {
+                const modResult = await moderateContent({ text: userInput });
+                if (modResult.flagged) {
                     await interaction.deleteReply();
                     await interaction.followUp({
                         content: "Your prompt did not pass moderation. Please try again with different content.",
@@ -182,16 +165,31 @@ module.exports = {
             userVerbs = interaction.fields.getTextInputValue('userVerbs');
             userAdjectives = interaction.fields.getTextInputValue('userAdjectives');
             userAdverbs = interaction.fields.getTextInputValue('userAdverbs');
-            // Filters the user input if inputFilter is set to true in the settings.ini file
-            if (filterCheck()) {
-                console.log("Filtering submitted words...");
-                userNouns = await filterString(userNouns);
-                userVerbs = await filterString(userVerbs);
-                userAdjectives = await filterString(userAdjectives);
-                userAdverbs = await filterString(userAdverbs);
-                console.log("The user inputted words after filtering are: \n" + '[NOUNS] : ' + userNouns + '\n' + '[VERBS] : ' + userVerbs + '\n' + '[ADJECTIVES] : ' + userAdjectives + '\n' + '[ADVERBS] : ' + userAdverbs + '\n');
+            
+            // Moderate user submitted words using OpenAI moderation if enabled
+            if (moderationEnabled) {
+                console.log("Moderating submitted words...");
+                const allWords = [userNouns, userVerbs, userAdjectives, userAdverbs].join(' ');
+                try {
+                    const modResult = await moderateContent({ text: allWords });
+                    if (modResult.flagged) {
+                        await interaction.reply({
+                            content: "Your submitted words did not pass moderation. Please try again with different content.",
+                            ephemeral: true
+                        });
+                        return;
+                    }
+                } catch (error) {
+                    console.error('Moderation error:', error);
+                    await interaction.reply({
+                        content: "An error occurred during moderation. Please try again.",
+                        ephemeral: true
+                    });
+                    return;
+                }
+                console.log("The user inputted words after moderation check are: \n" + '[NOUNS] : ' + userNouns + '\n' + '[VERBS] : ' + userVerbs + '\n' + '[ADJECTIVES] : ' + userAdjectives + '\n' + '[ADVERBS] : ' + userAdverbs + '\n');
             } else {
-                console.log("The user inputted words without filtering are: \n" + '[NOUNS] : ' + userNouns + '\n' + '[VERBS] : ' + userVerbs + '\n' + '[ADJECTIVES] : ' + userAdjectives + '\n' + '[ADVERBS] : ' + userAdverbs + '\n');
+                console.log("The user inputted words without moderation are: \n" + '[NOUNS] : ' + userNouns + '\n' + '[VERBS] : ' + userVerbs + '\n' + '[ADJECTIVES] : ' + userAdjectives + '\n' + '[ADVERBS] : ' + userAdverbs + '\n');
             }
             // Replaces the placeholders in the story with the user input
             const userFilledStory = await replacePlaceholders(story, userNouns, userVerbs, userAdjectives, userAdverbs);
@@ -223,19 +221,23 @@ async function generateStory(userInput) {
         });
         console.log("The story is: ");
         console.log(story.choices[0].message.content);
-        // Filter the story if enabled just in case the AI is having a bad day.
-        // Return the stroy
-        if (filterCheck()) {
+        
+        const generatedStory = story.choices[0].message.content;
+        
+        // Moderate the AI-generated story if moderation is enabled
+        if (moderationEnabled) {
             try {
-                return await filterString(story.choices[0].message.content);
+                const modResult = await moderateContent({ text: generatedStory });
+                if (modResult.flagged) {
+                    console.warn('AI-generated story was flagged by moderation');
+                    throw new Error('Generated story flagged by moderation');
+                }
             } catch (error) {
-                // Throws another error to be caught when the function is called
-                throw new Error(`Error: ${error}`);
+                throw new Error(`Moderation error: ${error.message}`);
             }
         }
-        else {
-            return story.choices[0].message.content;
-        }
+        
+        return generatedStory;
     } catch (error) {
         // Handle any errors that occur during the story generation
         if (error instanceof OpenAI.APIError) {
@@ -293,30 +295,4 @@ async function placeholderCount(story) {
         }
     });
     return counts;
-}
-
-async function filterCheck() {
-    const inputFilter = process.env.MODERATION_FILTER_NAUGHTY_WORDS;
-    if (inputFilter === 'true' || inputFilter === 'True' || inputFilter === 'TRUE') {
-        return true;
-    } else if (inputFilter === 'false' || inputFilter === 'False' || inputFilter === 'FALSE') {
-        return false;
-    } else {
-        throw new Error("MODERATION_FILTER_NAUGHTY_WORDS is not set to true or false in .env.defaults");
-    }
-}
-
-async function filterString(input) {
-    try {
-        console.log("Filtering string...\n String: " + input);
-        input = (filter.clean(input)).toString();
-        // Removes the asterisks that the filter replaces the bad words with. Somehow this is not built into the filter to my knowledge
-        input = input.replace(/\*/g, '');
-        console.log("The string after filtering is:\n" + input);
-    } catch (error) {
-        console.error(error);
-        // Throws another error to be caught when the function is called
-        throw new Error(`Error: ${error}`);
-    }
-    return input;
 }

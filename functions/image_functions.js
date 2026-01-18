@@ -37,8 +37,9 @@ const openaiChatBaseURL = process.env.ADVCONF_OPENAI_CHAT_BASE_URL;
 const openaiChat = new OpenAI({ apiKey: process.env.API_KEY_OPENAI_CHAT });
 openaiChat.baseURL = openaiChatBaseURL;
 
-// Profanity filter and save images setting
-console.log(`Profanity filter -- /Chat == ${filterCheck() ? 'ENABLED' : 'DISABLED'}`);
+// Moderation and save images settings
+const moderationEnabled = (process.env.MODERATION_OPENAI_MODERATION || 'false').trim().toLowerCase() === 'true';
+console.log(`OpenAI Moderation -- /image == ${moderationEnabled ? 'ENABLED' : 'DISABLED'}`);
 console.log(`Save images to disk -- /image == ${saveToDiskCheck() ? 'ENABLED' : 'DISABLED'}`);
 
 /* Functions */
@@ -48,11 +49,10 @@ async function generateImage({ userInput, negativePrompt, imageModel, dimensions
     // Creates an empty array to store the image buffers in
     let imageBuffer = [];
 
-    userInput = await filterCheckThenFilterString(userInput);
-    negativePrompt = await filterCheckThenFilterString(negativePrompt);
-    // Moderate the image and instructions before proceeding
-    if (await moderateContent({ text: userInput + ' ' + negativePrompt })) {
-        throw new Error("The provided image or instructions were flagged by the moderation system.");
+    // Moderate the user input and negative prompt before proceeding
+    const textToModerate = [userInput, negativePrompt].filter(Boolean).join(' ');
+    if (await moderateContent({ text: textToModerate }).then(r => r.flagged)) {
+        throw new Error("The provided image prompt or negative prompt was flagged by the moderation system.");
     }
 
     // Get the correct dimensions for the image
@@ -404,8 +404,8 @@ async function promptOptimizer(userInput, userID) {
     const hashedUserID = await generateHashedUserId(userID);
     let response = null;
 
-    userInput = await filterCheckThenFilterString(userInput);
-    if (await moderateContent({ text: userInput })) {
+    // Moderate user input before processing
+    if (await moderateContent({ text: userInput }).then(r => r.flagged)) {
         throw new Error("The provided text was flagged by the moderation system.");
     }
     try {
@@ -437,8 +437,11 @@ async function promptOptimizer(userInput, userID) {
         throw new Error(`Error: ${error}`);
     }
     let optimized_Prompt = response.choices[0].message.content;
-    // Filter the returned optimized prompt. Just in case the AI is unhappy today
-    optimized_Prompt = await filterCheckThenFilterString(optimized_Prompt);
+    
+    // Moderate the optimized prompt from the AI. Just in case the AI is unhappy today
+    if (await moderateContent({ text: optimized_Prompt }).then(r => r.flagged)) {
+        throw new Error("The AI-generated optimized prompt was flagged by the moderation system.");
+    }
     return optimized_Prompt;
 }
 
@@ -452,10 +455,9 @@ async function adaptImagePrompt(currentPrompt, refinementRequest, userID) {
     const systemMessage = process.env.IMAGE_CHAT_REFINEMENT_SYSTEM_MESSAGE;
     const userMessageTemplate = process.env.IMAGE_CHAT_REFINEMENT_USER_MESSAGE;
 
-    // Filter the refinement request
-    refinementRequest = await filterCheckThenFilterString(refinementRequest);
-    if (await moderateContent({ text: refinementRequest })) {
-        throw new Error("The provided text was flagged by the moderation system.");
+    // Moderate the refinement request before processing
+    if (await moderateContent({ text: refinementRequest }).then(r => r.flagged)) {
+        throw new Error("The refinement request was flagged by the moderation system.");
     }
 
     // Generate a hashed user ID to send to openai instead of the original user ID
@@ -488,7 +490,7 @@ async function adaptImagePrompt(currentPrompt, refinementRequest, userID) {
     }
 
     let refinedPrompt = response.choices[0].message.content.trim();
-    console.log("Refined prompt prior to filtering:\n", refinedPrompt);
+    console.log("Refined prompt prior to moderation:\n", refinedPrompt);
     // Extract the prompt between <START_PROMPT> and <END_PROMPT>
     const promptMatch = refinedPrompt.match(/<PROMPT>([\s\S]+?)<\/PROMPT>/);
     if (promptMatch && promptMatch[1]) {
@@ -498,7 +500,10 @@ async function adaptImagePrompt(currentPrompt, refinementRequest, userID) {
         throw new Error('Failed to extract refined prompt.');
     }
 
-    refinedPrompt = await filterCheckThenFilterString(refinedPrompt);
+    // Moderate the AI-generated refined prompt
+    if (await moderateContent({ text: refinedPrompt }).then(r => r.flagged)) {
+        throw new Error("The AI-generated refined prompt was flagged by the moderation system.");
+    }
 
     console.log("Refined prompt:\n", refinedPrompt);
     return refinedPrompt;

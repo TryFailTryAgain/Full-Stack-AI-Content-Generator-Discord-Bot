@@ -1,5 +1,4 @@
 const imageFunctions = require('../image_functions.js');
-const { filterCheckThenFilterString } = require('../helperFunctions.js');
 const { moderateContent } = require('../moderation.js');
 
 // Openai sdk function call definition for generating images
@@ -28,18 +27,17 @@ async function generate_image_tool(functionCall, interaction) {
         const args = JSON.parse(functionCall.arguments); // Parse the JSON string
         const prompt = args.prompt; // Now you can access the prompt
         console.log("Generating image with prompt:", prompt);
-        // Filter the prompt for profanity or banned words
-        const filteredPrompt = await filterCheckThenFilterString(prompt);
-        console.log("Filtered prompt:", filteredPrompt);
-        // Check for flagged content using moderation
-        const isFlagged = await moderateContent({ text: filteredPrompt });
-        if (isFlagged) {
+        
+        // Check for flagged content using OpenAI moderation
+        const modResult = await moderateContent({ text: prompt });
+        if (modResult.flagged) {
             console.warn('Prompt flagged by moderation, not generating image.');
             return null;
         }
+        
         // Generate the image using default settings from the environment variables
         const imageBuffer = await imageFunctions.generateImage({
-            userInput: filteredPrompt,
+            userInput: prompt,
             imageModel: process.env.VOICE_CHAT_IMAGE_MODEL,
             dimensions: 'square', // Default dimension
             userID: interaction.user.id,
