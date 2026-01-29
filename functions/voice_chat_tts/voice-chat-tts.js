@@ -38,9 +38,20 @@ function buildSessionConfig({ preventInterruptions }) {
         },
         speech: {
             provider: (process.env.VOICE_CHAT_TTS_PROVIDER || 'openai').toLowerCase(),
+            // OpenAI TTS options
             voice: process.env.OPENAI_TTS_VOICE || 'sage',
             voiceDetails: process.env.OPENAI_TTS_INSTRUCTIONS,
-            preventInterruptions
+            preventInterruptions,
+            // Qwen3-TTS options (via Replicate)
+            qwen3: {
+                mode: process.env.QWEN3_TTS_MODE || 'custom_voice',
+                speaker: process.env.QWEN3_TTS_SPEAKER || 'Aiden',
+                language: process.env.QWEN3_TTS_LANGUAGE || 'auto',
+                styleInstruction: process.env.QWEN3_TTS_STYLE_INSTRUCTION,
+                voiceDescription: process.env.QWEN3_TTS_VOICE_DESCRIPTION,
+                referenceAudio: process.env.QWEN3_TTS_REFERENCE_AUDIO,
+                referenceText: process.env.QWEN3_TTS_REFERENCE_TEXT
+            }
         },
         llm: {
             backend: (process.env.VOICE_CHAT_TTS_LLM_BACKEND || 'chat').toLowerCase(),
@@ -71,22 +82,38 @@ function createSpeechInterface(connection, speechConfig) {
     return {
         async speak(text, { forceNoInterruptions } = {}) {
             if (!text || !text.trim()) return null;
-            if (speechConfig.provider !== 'openai') {
-                console.warn(`[TTS] Provider ${speechConfig.provider} not implemented.`);
-                return null;
-            }
+            
             const noInterruptions = typeof forceNoInterruptions === 'boolean'
                 ? forceNoInterruptions
                 : speechConfig.preventInterruptions;
+            
+            // Build options based on provider
+            const options = {
+                provider: speechConfig.provider,
+                noInterruptions
+            };
+            
+            // Add provider-specific options
+            if (speechConfig.provider === 'openai') {
+                options.voice = speechConfig.voice;
+                options.voiceDetails = speechConfig.voiceDetails;
+            } else if (['qwen3tts', 'qwen3', 'qwen'].includes(speechConfig.provider)) {
+                // Qwen3-TTS options are read from env vars by the provider
+                // but we can pass overrides here if needed
+                if (speechConfig.qwen3) {
+                    options.speaker = speechConfig.qwen3.speaker;
+                    options.styleInstruction = speechConfig.qwen3.styleInstruction;
+                    options.voiceDescription = speechConfig.qwen3.voiceDescription;
+                    options.referenceAudio = speechConfig.qwen3.referenceAudio;
+                    options.referenceText = speechConfig.qwen3.referenceText;
+                }
+            }
+            
             try {
-                await synthesizeAndPlay(text.trim(), connection, {
-                    voice: speechConfig.voice,
-                    noInterruptions,
-                    voiceDetails: speechConfig.voiceDetails
-                });
+                await synthesizeAndPlay(text.trim(), connection, options);
                 return true;
             } catch (error) {
-                console.error('[TTS] Synthesis failed:', error);
+                console.error(`[TTS:${speechConfig.provider}] Synthesis failed:`, error);
                 throw error;
             }
         },
@@ -95,6 +122,9 @@ function createSpeechInterface(connection, speechConfig) {
         },
         isSpeaking() {
             return isPlaybackActive();
+        },
+        getProvider() {
+            return speechConfig.provider;
         }
     };
 }

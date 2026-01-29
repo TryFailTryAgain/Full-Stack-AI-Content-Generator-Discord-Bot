@@ -136,9 +136,19 @@
 - VOICE_CHAT_TTS_SILENCE_PACKET_MS: packet interval for silence stream
 - VOICE_CHAT_TTS_USE_VAD_EVENTS: enable voice activity detection events
 - VOICE_CHAT_TTS_INTERRUPTION_DELAY: delay before user can interrupt AI speech (ms)
-- VOICE_CHAT_TTS_PROVIDER: TTS service provider (openai/other)
+- VOICE_CHAT_TTS_PROVIDER: TTS service provider (openai, qwen3tts, qwen3, qwen)
 - VOICE_CHAT_TTS_LLM_BACKEND: backend type for LLM processing (chat/completion)
 - VOICE_CHAT_TTS_REASONING_LEVEL: reasoning level for LLM (minimal/standard/extended)
+
+[Qwen3-TTS Settings (via Replicate)]
+- REPLICATE_API_TOKEN: API token for Replicate (required for Qwen3-TTS)
+- QWEN3_TTS_MODE: TTS mode (custom_voice, voice_clone, voice_design)
+- QWEN3_TTS_SPEAKER: preset speaker for custom_voice mode (Aiden, Aria, Bella, Callum, Charlotte, Dylan, Ella, Grace, Harry, Isabella, Jack, Liam, Mia, Noah, Olivia, Sophia)
+- QWEN3_TTS_LANGUAGE: language for TTS (auto, English, Chinese, Spanish, etc.)
+- QWEN3_TTS_STYLE_INSTRUCTION: style/emotion instruction (e.g., 'speak slowly and calmly')
+- QWEN3_TTS_VOICE_DESCRIPTION: voice description for voice_design mode (e.g., 'A warm, friendly female voice')
+- QWEN3_TTS_REFERENCE_AUDIO: URL to reference audio for voice_clone mode
+- QWEN3_TTS_REFERENCE_TEXT: transcript of reference audio for voice_clone mode
 
 [Ad-lib story settings]
 - ADLIB_PROMPT_MODEL: LLM model for story generation (e.g., gpt-4.1-mini)
