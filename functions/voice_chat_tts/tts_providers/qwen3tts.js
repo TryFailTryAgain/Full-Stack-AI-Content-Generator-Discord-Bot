@@ -361,8 +361,133 @@ async function streamAudioFromUrl(audioUrl, connection, requestStart) {
 }
 
 /**
+ * Stream audio from the Replicate file stream URL
+ * This URL provides audio data as it's being generated for lowest latency
+ * @param {string} streamUrl - The stream URL from prediction.urls.stream
+ * @param {Object} connection - Discord voice connection
+ * @param {number} requestStart - Timestamp when request started
+ * @returns {Promise<void>}
+ */
+async function streamFromReplicateUrl(streamUrl, connection, requestStart) {
+    let settled = false;
+
+    const deferred = {};
+    deferred.promise = new Promise((resolve, reject) => {
+        deferred.resolve = resolve;
+        deferred.reject = reject;
+    });
+
+    console.log(`[TTS:Qwen3] Connecting to stream URL...`);
+
+    // Stream audio from the Replicate stream URL
+    // This provides data as it's being generated
+    const resp = await axios.get(streamUrl, {
+        responseType: 'stream',
+        timeout: 120000, // Long timeout for generation
+        headers: {
+            'Accept': '*/*'
+        }
+    });
+
+    const input = new PassThrough();
+    let firstChunkLogged = false;
+    let totalBytes = 0;
+
+    // FFmpeg to convert to Discord format (48kHz stereo s16le)
+    const ff = spawn('ffmpeg', [
+        '-hide_banner', '-loglevel', 'error',
+        '-i', 'pipe:0',
+        '-f', 's16le', '-ar', '48000', '-ac', '2',
+        'pipe:1'
+    ]);
+
+    input.pipe(ff.stdin);
+    ff.stdin.on('error', () => { });
+
+    const player = createAudioPlayer();
+    let playbackInitialized = false;
+
+    const startPlayback = () => {
+        if (playbackInitialized) return;
+        playbackInitialized = true;
+        const resource = createAudioResource(ff.stdout, { inputType: StreamType.Raw });
+        player.play(resource);
+        connection.subscribe(player);
+        playbackState.player = player;
+        playbackState.isPlaying = true;
+        playbackState.startTimestamp = Date.now();
+    };
+
+    const cleanup = () => {
+        playbackState.isPlaying = false;
+        if (playbackState.player === player) {
+            playbackState.player = null;
+        }
+        try { input.destroy(); } catch { }
+        try { resp.data.destroy(); } catch { }
+        try { ff.kill('SIGKILL'); } catch { }
+    };
+
+    const resolveOnce = () => {
+        if (settled) return;
+        settled = true;
+        console.log(`[TTS:Qwen3] Stream complete, total bytes: ${totalBytes}`);
+        cleanup();
+        deferred.resolve();
+    };
+
+    const rejectOnce = (err) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        deferred.reject(err);
+    };
+
+    resp.data.on('end', () => {
+        if (!settled) {
+            console.log('[TTS:Qwen3] Stream ended');
+            input.end();
+        }
+    });
+
+    resp.data.once('error', err => {
+        console.error('[TTS:Qwen3] Stream error:', err?.message || err);
+        rejectOnce(err);
+    });
+
+    ff.once('error', err => {
+        console.error('[TTS:Qwen3] FFmpeg error:', err);
+        rejectOnce(err);
+    });
+
+    player.once('error', err => {
+        console.error('[TTS:Qwen3] Player error:', err);
+        rejectOnce(err);
+    });
+
+    player.once(AudioPlayerStatus.Idle, resolveOnce);
+
+    resp.data.on('data', chunk => {
+        totalBytes += chunk.length;
+        
+        if (!firstChunkLogged) {
+            firstChunkLogged = true;
+            const latency = Date.now() - requestStart;
+            console.log(`[TTS:Qwen3] First audio chunk received: ${latency}ms (${chunk.length} bytes)`);
+            startPlayback();
+        }
+        
+        if (!settled && !input.destroyed && !input.writableEnded) {
+            input.write(chunk);
+        }
+    });
+
+    return deferred.promise;
+}
+
+/**
  * Synthesizes text to speech using Qwen3-TTS via Replicate and streams to Discord
- * Uses FileOutput streaming for lowest possible latency
+ * Uses prediction streaming for lowest possible latency - starts playing as audio generates
  * @param {string} text - Text to synthesize
  * @param {Object} connection - Discord voice connection
  * @param {Object} options - TTS options
@@ -386,42 +511,50 @@ async function synthesizeAndPlay(text, connection, options = {}) {
     try {
         const replicate = getReplicateClient();
 
-        // Run the model - replicate.run() returns a FileOutput which is a ReadableStream
-        // This allows us to stream the audio as it's generated
-        const output = await replicate.run(MODEL_ID, { input: inputParams });
+        // Use predictions.create() instead of run() to get the stream URL immediately
+        // This allows us to start streaming audio as it's being generated
+        const prediction = await replicate.predictions.create({
+            model: MODEL_ID,
+            input: inputParams
+        });
 
-        if (!output) {
-            throw new Error('[TTS:Qwen3] No output received from model');
-        }
+        const createLatency = Date.now() - requestStart;
+        console.log(`[TTS:Qwen3] Prediction created in ${createLatency}ms, id: ${prediction.id}`);
 
-        const modelLatency = Date.now() - requestStart;
-        console.log(`[TTS:Qwen3] Model responded in ${modelLatency}ms`);
-
-        // Check if output is a FileOutput (ReadableStream) or a URL string
-        if (output && typeof output.getReader === 'function') {
-            // FileOutput - stream directly for lowest latency
-            console.log('[TTS:Qwen3] Streaming from FileOutput...');
-            await streamToDiscord(output, connection, requestStart);
-        } else if (output && typeof output.url === 'function') {
-            // FileOutput with url() method - get the URL and stream from there
-            const audioUrl = output.url();
-            console.log(`[TTS:Qwen3] Streaming from URL: ${audioUrl}`);
-            await streamAudioFromUrl(audioUrl, connection, requestStart);
-        } else if (typeof output === 'string') {
-            // Plain URL string - stream from the URL
-            console.log(`[TTS:Qwen3] Streaming from URL string...`);
-            await streamAudioFromUrl(output, connection, requestStart);
-        } else if (output && typeof output.toString === 'function') {
-            // Fallback - try to get URL from toString
-            const audioUrl = output.toString();
-            if (audioUrl.startsWith('http')) {
-                console.log(`[TTS:Qwen3] Streaming from converted URL...`);
-                await streamAudioFromUrl(audioUrl, connection, requestStart);
-            } else {
-                throw new Error('[TTS:Qwen3] Unable to extract audio URL from output');
-            }
+        // Check if we have a stream URL - this is the key for low latency
+        if (prediction.urls && prediction.urls.stream) {
+            console.log(`[TTS:Qwen3] Stream URL available, starting streaming playback...`);
+            
+            // Start streaming from the URL immediately
+            // The stream will provide audio data as it's generated
+            await streamFromReplicateUrl(prediction.urls.stream, connection, requestStart);
+            
         } else {
-            throw new Error('[TTS:Qwen3] Unknown output format received');
+            // Fallback: wait for prediction to complete and stream from output URL
+            console.log('[TTS:Qwen3] No stream URL, falling back to polling...');
+            
+            // Poll for completion
+            let completedPrediction = prediction;
+            while (completedPrediction.status !== 'succeeded' && completedPrediction.status !== 'failed') {
+                await new Promise(resolve => setTimeout(resolve, 500));
+                completedPrediction = await replicate.predictions.get(prediction.id);
+            }
+            
+            if (completedPrediction.status === 'failed') {
+                throw new Error(`[TTS:Qwen3] Prediction failed: ${completedPrediction.error}`);
+            }
+            
+            const output = completedPrediction.output;
+            if (!output) {
+                throw new Error('[TTS:Qwen3] No output received from model');
+            }
+
+            const modelLatency = Date.now() - requestStart;
+            console.log(`[TTS:Qwen3] Model completed in ${modelLatency}ms`);
+
+            // Stream from output URL
+            const audioUrl = typeof output === 'string' ? output : output.toString();
+            await streamAudioFromUrl(audioUrl, connection, requestStart);
         }
 
     } catch (error) {
