@@ -86,7 +86,7 @@
 - IMAGE_IMAGE2IMAGE_MODEL: model used for image-to-image transformations
 - IMAGE_IMAGEEDIT_MODEL: model used for image editing operations
 - IMAGE_UPSCALE_MODEL: model for upscaling outputs (e.g., nightmareai/real-esrgan)
-- IMAGE_PROMPT_MODEL: LLM for prompt optimization (e.g., gpt-4.1-mini)
+- IMAGE_PROMPT_MODEL: LLM for prompt optimization (e.g., gpt-5-nano)
 - IMAGE_OPTIMIZER_TEMPERATURE: temperature setting for prompt optimization LLM
 - IMAGE_SYSTEM_MESSAGE: system prompt for the image prompt generator/improver
 - IMAGE_USER_MESSAGE: user message template for prompt generation
@@ -101,7 +101,7 @@
 
 [Chat command settings]
 - CHAT_API_BACKEND: API backend for chat requests (completions/responses) - use 'responses' for OpenAI's newer Responses API with better performance and caching
-- CHAT_MODEL: LLM used for chat responses (e.g., gpt-4.1-mini)
+- CHAT_MODEL: LLM used for chat responses (e.g., gpt-5-nano)
 - CHAT_TEMPERATURE: temperature setting for chat model responses (optional - omit to use model defaults)
 - CHAT_MAX_TOKENS: maximum tokens per chat response
 - CHAT_REASONING_EFFORT: reasoning effort level for reasoning models like o1/o3 (low/medium/high, optional)
@@ -145,15 +145,15 @@
 [Qwen3-TTS Settings (via Replicate)]
 - REPLICATE_API_TOKEN: API token for Replicate (required for Qwen3-TTS)
 - QWEN3_TTS_MODE: TTS mode (custom_voice, voice_clone, voice_design)
-- QWEN3_TTS_SPEAKER: preset speaker for custom_voice mode (Aiden, Aria, Bella, Callum, Charlotte, Dylan, Ella, Grace, Harry, Isabella, Jack, Liam, Mia, Noah, Olivia, Sophia)
+- QWEN3_TTS_SPEAKER: preset speaker for custom_voice mode
 - QWEN3_TTS_LANGUAGE: language for TTS (auto, English, Chinese, Spanish, etc.)
-- QWEN3_TTS_STYLE_INSTRUCTION: style/emotion instruction (e.g., 'speak slowly and calmly')
-- QWEN3_TTS_VOICE_DESCRIPTION: voice description for voice_design mode (e.g., 'A warm, friendly female voice')
+- QWEN3_TTS_STYLE_INSTRUCTION: style/emotion instruction
+- QWEN3_TTS_VOICE_DESCRIPTION: voice description for voice_design mode
 - QWEN3_TTS_REFERENCE_AUDIO: URL to reference audio for voice_clone mode
 - QWEN3_TTS_REFERENCE_TEXT: transcript of reference audio for voice_clone mode
 
 [Ad-lib story settings]
-- ADLIB_PROMPT_MODEL: LLM model for story generation (e.g., gpt-4.1-mini)
+- ADLIB_PROMPT_MODEL: LLM model for story generation (e.g., gpt-5-nano)
 
 [Moderation settings]
 - MODERATION_OPENAI_MODERATION: enable OpenAI moderation API for content safety (true/false)
