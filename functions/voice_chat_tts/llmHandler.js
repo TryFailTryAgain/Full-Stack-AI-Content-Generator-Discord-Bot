@@ -31,6 +31,13 @@ const toolMap = {
 
 const defaultSystemPrompt = 'You are a voice assistant. Keep replies concise for speech.';
 
+function normalizeBackend(value) {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (['chat', 'completion', 'completions'].includes(normalized)) return 'completions';
+    if (['responses', 'response'].includes(normalized)) return 'responses';
+    return 'responses';
+}
+
 function sanitizeRoleName(name) {
     if (!name) return undefined;
     const cleaned = name
@@ -87,9 +94,10 @@ async function handleToolCalls({ toolCalls = [], interaction, state }) {
 
 function createLLMHandler({ interaction, config = {}, ws = null, discordConnection = null }) {
     const llmConfig = {
-        model: config.model || 'gpt-4.1-nano',
-        temperature: Number.isFinite(Number(config.temperature)) ? Number(config.temperature) : 0.85,
+        backend: normalizeBackend(config.backend),
+        model: config.model,
         maxTokens: config.maxTokens === 'inf' ? undefined : parseInt(config.maxTokens || '400', 10),
+        reasoningLevel: config.reasoningLevel || null,
         systemPrompt: config.systemPrompt || defaultSystemPrompt
     };
     const client = new OpenAI({
@@ -131,34 +139,87 @@ function createLLMHandler({ interaction, config = {}, ws = null, discordConnecti
 
     async function promptModel() {
         const rawTools = getTools();
+        if (llmConfig.backend === 'completions') {
+            const payload = {
+                model: llmConfig.model,
+                messages: convertMessagesToChatInput(state.messages),
+                response_format: { type: 'text' },
+                tools: rawTools.length ? rawTools : undefined,
+                tool_choice: rawTools.length ? 'auto' : undefined,
+                store: false
+            };
+            if (llmConfig.maxTokens) {
+                payload.max_completion_tokens = llmConfig.maxTokens;
+            }
+            if (llmConfig.reasoningLevel) {
+                payload.reasoning_effort = llmConfig.reasoningLevel;
+            }
+
+            try {
+                const response = await state.client.chat.completions.create(payload);
+                const message = response?.choices?.[0]?.message;
+                if (!message) return null;
+
+                const text = extractChatCompletionText(message, response) || null;
+                const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+
+                if (toolCalls.length) {
+                    pushAssistantTurn(text || '', { tool_calls: toolCalls });
+                    await handleToolCalls({ toolCalls, interaction: state.interaction, state });
+                    return promptModel();
+                }
+
+                return text;
+            } catch (error) {
+                console.error('[LLM] Chat completion failed:', error);
+                return null;
+            }
+        }
+
+        // Responses API
         const tools = normalizeToolsForResponses(rawTools);
         const payload = {
             model: llmConfig.model,
-            temperature: llmConfig.temperature,
             input: convertMessagesToResponseInput(state.messages),
+            text: {
+                format: { type: 'text' }
+            },
             tools: tools.length ? tools : undefined,
-            tool_choice: tools.length ? 'auto' : undefined
+            tool_choice: tools.length ? 'auto' : undefined,
+            store: false,
+            include: ['reasoning.encrypted_content']
         };
         if (llmConfig.maxTokens) {
             payload.max_output_tokens = llmConfig.maxTokens;
         }
-
-        const response = await state.client.responses.create(payload);
-        if (!response) return null;
-
-        const { text, toolCalls } = parseResponseOutput(response);
-
-        if (toolCalls.length) {
-            pushAssistantTurn(text || '', { tool_calls: toolCalls });
-            await handleToolCalls({ toolCalls, interaction: state.interaction, state });
-            return promptModel();
+        if (llmConfig.reasoningLevel) {
+            payload.reasoning = { effort: llmConfig.reasoningLevel };
         }
 
-        return text;
+        try {
+            const response = await state.client.responses.create(payload);
+            if (!response) return null;
+
+            const { text, toolCalls } = parseResponseOutput(response);
+
+            if (toolCalls.length) {
+                pushAssistantTurn(text || '', { tool_calls: toolCalls });
+                await handleToolCalls({ toolCalls, interaction: state.interaction, state });
+                return promptModel();
+            }
+
+            return text;
+        } catch (error) {
+            console.error('[LLM] Responses API failed:', error);
+            return null;
+        }
     }
 
     async function generateGreeting() {
-        const greetingPrompt = 'You just joined the Discord voice channel. Say a brief, friendly greeting to everyone present.';
+        const envGreeting = process.env.OPENAI_VOICE_CHAT_TTS_GREETING;
+        const greetingPrompt = (typeof envGreeting === 'string' && envGreeting.trim().length > 0)
+            ? envGreeting.trim()
+            : 'You just joined the Discord voice channel. Say a brief, friendly greeting to everyone present.';
         pushUserTurn({ username: 'system-injected', text: greetingPrompt });
         const reply = await promptModel();
         if (reply) pushAssistantTurn(reply);
@@ -246,10 +307,87 @@ function convertMessagesToResponseInput(messages = []) {
     return inputItems;
 }
 
+function convertMessagesToChatInput(messages = []) {
+    const chatMessages = [];
+
+    for (const message of messages) {
+        if (!message) continue;
+
+        if (message.role === 'tool') {
+            if (!message.tool_call_id) continue;
+            chatMessages.push({
+                role: 'tool',
+                tool_call_id: message.tool_call_id,
+                name: message.name,
+                content: typeof message.content === 'string' ? message.content : String(message.content || '')
+            });
+            continue;
+        }
+
+        if (!isSupportedMessageRole(message.role)) continue;
+
+        const entry = {
+            role: message.role,
+            content: hasText(message.content) ? String(message.content) : null
+        };
+
+        if (Array.isArray(message.tool_calls) && message.tool_calls.length) {
+            entry.tool_calls = message.tool_calls
+                .map((toolCall) => {
+                    const id = toolCall.id || toolCall.call_id;
+                    const name = toolCall.function?.name;
+                    if (!id || !name) return null;
+                    return {
+                        id,
+                        type: 'function',
+                        function: {
+                            name,
+                            arguments: toolCall.function?.arguments || '{}'
+                        }
+                    };
+                })
+                .filter(Boolean);
+        }
+
+        chatMessages.push(entry);
+    }
+
+    return chatMessages;
+}
+
 function createTextContent(text, role) {
     // Assistant messages use 'output_text', all other roles use 'input_text'
     const contentType = role === 'assistant' ? 'output_text' : 'input_text';
     return [{ type: contentType, text: String(text) }];
+}
+
+function extractChatCompletionText(message, response) {
+    if (!message) return '';
+    if (typeof message.content === 'string') return message.content;
+    if (message.content && typeof message.content === 'object' && typeof message.content.text === 'string') {
+        return message.content.text;
+    }
+    if (Array.isArray(message.content)) {
+        return message.content
+            .map((item) => {
+                if (!item) return '';
+                if (typeof item === 'string') return item;
+                if (typeof item.text === 'string') return item.text;
+                if (typeof item.output_text === 'string') return item.output_text;
+                if (typeof item.content === 'string') return item.content;
+                return '';
+            })
+            .join('')
+            .trim();
+    }
+    if (typeof message.refusal === 'string' && message.refusal.trim()) return message.refusal;
+    if (typeof response?.output_text === 'string' && response.output_text.trim()) return response.output_text;
+    if (typeof response?.choices?.[0]?.text === 'string' && response.choices[0].text.trim()) {
+        return response.choices[0].text;
+    }
+    const altContent = response?.choices?.[0]?.message?.content;
+    if (typeof altContent === 'string') return altContent;
+    return '';
 }
 
 function hasText(value) {

@@ -34,7 +34,11 @@ function buildSessionConfig({ preventInterruptions }) {
             transcriptionMode,
             preventInterruptions,
             interruptionDelayMs: numberFromEnv(process.env.VOICE_CHAT_TTS_INTERRUPTION_DELAY, 1000),
-            useVadEvents: realtime && parseBooleanEnv(process.env.VOICE_CHAT_TTS_USE_VAD_EVENTS, true)
+            useVadEvents: realtime && parseBooleanEnv(process.env.VOICE_CHAT_TTS_USE_VAD_EVENTS, true),
+            // Silence injection settings - helps VAD detect end of speech
+            silenceStreamEnabled: parseBooleanEnv(process.env.VOICE_CHAT_TTS_SILENCE_STREAM_ENABLED, true),
+            silencePaddingMs: numberFromEnv(process.env.VOICE_CHAT_TTS_SILENCE_PADDING_MS, 4000),
+            silencePacketMs: numberFromEnv(process.env.VOICE_CHAT_TTS_SILENCE_PACKET_MS, 100)
         },
         speech: {
             provider: (process.env.VOICE_CHAT_TTS_PROVIDER || 'openai').toLowerCase(),
@@ -54,9 +58,8 @@ function buildSessionConfig({ preventInterruptions }) {
             }
         },
         llm: {
-            backend: (process.env.VOICE_CHAT_TTS_LLM_BACKEND || 'chat').toLowerCase(),
-            model: process.env.OPENAI_TTS_LLM_MODEL || 'gpt-4.1-nano',
-            temperature: process.env.VOICE_CHAT_TTS_TEMPERATURE ? parseFloat(process.env.VOICE_CHAT_TTS_TEMPERATURE) : 0.85,
+            backend: (process.env.VOICE_CHAT_TTS_LLM_BACKEND).toLowerCase(),
+            model: process.env.OPENAI_TTS_LLM_MODEL,
             maxTokens: process.env.VOICE_CHAT_TTS_MAX_TOKENS || '400',
             reasoningLevel: process.env.VOICE_CHAT_TTS_REASONING_LEVEL || 'none',
             systemPrompt: process.env.OPENAI_VOICE_CHAT_INSTRUCTIONS || 'You are a voice assistant. Keep replies concise for speech.',
@@ -220,6 +223,44 @@ async function createRealtimeTranscriber(audioConfig, handlerRef = {}) {
     };
 }
 
+/**
+ * Injects silence into the transcription stream to help VAD detect end of speech
+ * @param {Object} transcription - The transcription interface with sendAudio method
+ * @param {Object} config - Audio config with silence settings
+ * @returns {Promise<void>}
+ */
+function injectSilence(transcription, config) {
+    return new Promise((resolve) => {
+        if (!transcription || !config.silenceStreamEnabled) {
+            resolve();
+            return;
+        }
+
+        const packetMs = config.silencePacketMs || 100;
+        const totalMs = config.silencePaddingMs || 4000;
+        const packets = Math.ceil(totalMs / packetMs);
+        
+        // 24kHz mono 16-bit PCM: samples = sampleRate * seconds * bytesPerSample
+        // For 100ms: 24000 * 0.1 * 2 = 4800 bytes
+        const silenceBuffer = Buffer.alloc(Math.floor(24000 * (packetMs / 1000) * 2), 0);
+        
+        let sent = 0;
+        console.log(`[AudioBridge] Injecting ${totalMs}ms of silence (${packets} packets)`);
+        
+        const intervalId = setInterval(() => {
+            if (sent >= packets) {
+                clearInterval(intervalId);
+                console.log(`[AudioBridge] Silence injection complete`);
+                resolve();
+                return;
+            }
+            
+            transcription.sendAudio(silenceBuffer);
+            sent++;
+        }, packetMs);
+    });
+}
+
 function attachDiscordAudio({ connection, channel, config, speech, transcription, audioState, onTranscript, onBatchAudio }) {
     const activeSpeakers = audioState.activeSpeakers;
 
@@ -273,9 +314,20 @@ function attachDiscordAudio({ connection, channel, config, speech, transcription
                 const buffer = speaker.bufferList.length ? Buffer.concat(speaker.bufferList) : null;
                 onBatchAudio({ buffer, speaker: speaker.metadata });
             }
-        } else if (transcription && !config.useVadEvents) {
-            transcription.commit();
-            flushTranscript(audioState, onTranscript);
+        } else if (transcription) {
+            // When using VAD events, inject silence to help detect end of speech
+            // When not using VAD, we still inject silence before committing
+            if (config.silenceStreamEnabled) {
+                injectSilence(transcription, config).then(() => {
+                    if (!config.useVadEvents) {
+                        flushTranscript(audioState, onTranscript);
+                    }
+                    // VAD events will trigger onComplete automatically after silence
+                });
+            } else if (!config.useVadEvents) {
+                transcription.commit();
+                flushTranscript(audioState, onTranscript);
+            }
         }
     };
 

@@ -100,9 +100,11 @@
 - IMAGE_ADV_EDIT_MODELS: comma-separated list of image edit models
 
 [Chat command settings]
+- CHAT_API_BACKEND: API backend for chat requests (completions/responses) - use 'responses' for OpenAI's newer Responses API with better performance and caching
 - CHAT_MODEL: LLM used for chat responses (e.g., gpt-4.1-mini)
-- CHAT_TEMPERATURE: temperature setting for chat model responses
+- CHAT_TEMPERATURE: temperature setting for chat model responses (optional - omit to use model defaults)
 - CHAT_MAX_TOKENS: maximum tokens per chat response
+- CHAT_REASONING_EFFORT: reasoning effort level for reasoning models like o1/o3 (low/medium/high, optional)
 - CHAT_SYSTEM_MESSAGE: base system prompt for the chat assistant
 
 [Voice chat command settings]
@@ -122,13 +124,13 @@
 - OPENAI_TRANSCRIPTION_MODEL: model for speech-to-text transcription
 - OPENAI_STT_TRANSCRIPTION_PROMPT: optional prompt to guide transcription
 - OPENAI_STT_TRANSCRIPTION_LANGUAGE: language code for transcription (e.g., en)
+- OPENAI_VOICE_CHAT_TTS_GREETING: initial greeting message when AI joins voice chat TTS
 - OPENAI_TTS_LLM_MODEL: LLM model used for text generation in TTS mode
 - OPENAI_TTS_MODEL: text-to-speech model for voice synthesis
 - OPENAI_TTS_VOICE: voice selection for TTS output
 - OPENAI_TTS_INSTRUCTIONS: instructions for TTS voice characteristics
 - VOICE_CHAT_TTS_MAX_TOKENS: maximum tokens per TTS response
 - VOICE_CHAT_TTS_TIME_LIMIT: time limit for TTS voice sessions in seconds
-- VOICE_CHAT_TTS_TEMPERATURE: temperature for TTS LLM responses
 - VOICE_CHAT_TTS_CONVERSATION_MAX_MESSAGES: max messages to retain in conversation history (inf for unlimited)
 - VOICE_CHAT_TTS_TRANSCRIPTION_MODE: transcription processing mode (realtime/batch)
 - VOICE_CHAT_TTS_SILENCE_STREAM_ENABLED: enable silence padding in audio stream
@@ -137,7 +139,7 @@
 - VOICE_CHAT_TTS_USE_VAD_EVENTS: enable voice activity detection events
 - VOICE_CHAT_TTS_INTERRUPTION_DELAY: delay before user can interrupt AI speech (ms)
 - VOICE_CHAT_TTS_PROVIDER: TTS service provider (openai, qwen3tts, qwen3, qwen)
-- VOICE_CHAT_TTS_LLM_BACKEND: backend type for LLM processing (chat/completion)
+- VOICE_CHAT_TTS_LLM_BACKEND: backend type for LLM processing sdk (completions/responses)
 - VOICE_CHAT_TTS_REASONING_LEVEL: reasoning level for LLM (minimal/standard/extended)
 
 [Qwen3-TTS Settings (via Replicate)]
