@@ -237,6 +237,7 @@ module.exports = {
 async function generateStory(userInput) {
     console.log("Generating story...");
     try {
+        const maxCompletionTokens = parseInt(process.env.ADLIB_MAX_TOKENS || '1000', 10);
         // Calls the OpenAI API to generate a story based on the prompt provided
         const story = await openai.chat.completions.create({
             model: process.env.ADLIB_PROMPT_MODEL, // using environment variable
@@ -247,7 +248,8 @@ async function generateStory(userInput) {
                 { role: "user", content: "The following may be an idea/concept or request that the user has provided that should give you direction in the generation of a Madlibs style story that uses [NOUN], [VERB], [ADVERB], [ADJECTIVE] to replace some of their respective words. Do with it what you think is best. Thank you. User prompt: " + userInput }
             ],
             stream: false,
-            max_tokens: 300,
+            max_completion_tokens: maxCompletionTokens,
+            store: false,
         });
         console.log("The story is: ");
         console.log(story.choices[0].message.content);

@@ -65,7 +65,8 @@ async function sendChatMessageCompletions(conversationHistory) {
             ...conversationHistory
         ],
         model: chatSettings.chatModel,
-        max_completion_tokens: chatSettings.maxTokens
+        max_completion_tokens: chatSettings.maxTokens,
+        store: false
     };
 
     // Only add temperature if provided

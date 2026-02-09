@@ -584,6 +584,7 @@ async function promptOptimizer(userInput, userID) {
             presence_penalty: 0,
             // Send the hashed string instead of the original string
             user: toString(hashedUserID),
+            store: false,
         });
     } catch (error) {
         console.error(error);
@@ -643,6 +644,7 @@ async function adaptImagePrompt(currentPrompt, refinementRequest, userID) {
             frequency_penalty: 0,
             presence_penalty: 0,
             user: String(hashedUserID),
+            store: false,
         });
     } catch (error) {
         console.error('Error refining prompt:', error);
