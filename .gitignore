@@ -6,7 +6,7 @@ package-lock.json
 Outputs/*
 !Outputs/image-edit-example.jpg
 !Outputs/image-Example.png
-
+!Outputs/thinking-sounds.mp3
 # Environments
 .env
 .env.local

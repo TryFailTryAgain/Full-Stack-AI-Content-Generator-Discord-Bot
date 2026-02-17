@@ -138,9 +138,11 @@
 - VOICE_CHAT_TTS_SILENCE_PACKET_MS: packet interval for silence stream
 - VOICE_CHAT_TTS_USE_VAD_EVENTS: enable voice activity detection events
 - VOICE_CHAT_TTS_INTERRUPTION_DELAY: delay before user can interrupt AI speech (ms)
+- VOICE_CHAT_TTS_INTERRUPT_AFTER_SPEECH_MS: minimum assistant speech playback time before interruptions can trigger follow-up generation (ms)
 - VOICE_CHAT_TTS_PROVIDER: TTS service provider (openai, qwen3tts, qwen3, qwen)
 - VOICE_CHAT_TTS_LLM_BACKEND: backend type for LLM processing sdk (completions/responses)
 - VOICE_CHAT_TTS_REASONING_LEVEL: reasoning level for LLM (minimal/standard/extended)
+- VOICE_CHAT_TTS_THINKING_SOUND_PATH: optional path to MP3 played during TTS generation latency (default: Outputs/thinking-sounds.mp3)
 
 [Qwen3-TTS Settings (via Replicate)]
 - REPLICATE_API_TOKEN: API token for Replicate (required for Qwen3-TTS)

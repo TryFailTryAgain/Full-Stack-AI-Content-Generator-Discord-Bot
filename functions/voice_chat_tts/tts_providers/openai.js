@@ -30,6 +30,7 @@ async function synthesizeAndPlay(text, connection, options = {}) {
     const model = process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts';
     const chosenVoice = voice || process.env.OPENAI_TTS_VOICE || 'sage';
     const instructions = voiceDetails || process.env.OPENAI_TTS_INSTRUCTIONS;
+    options.onSynthesisStart?.({ provider: PROVIDER_NAME });
 
     const requestStart = Date.now();
     console.log(`[TTS:OpenAI] Requesting: model=${model}, voice=${chosenVoice}`);
@@ -83,6 +84,7 @@ async function synthesizeAndPlay(text, connection, options = {}) {
     const startPlayback = () => {
         if (playbackInitialized) return;
         playbackInitialized = true;
+        options.onAudioStart?.({ provider: PROVIDER_NAME });
         const resource = createAudioResource(ff.stdout, { inputType: StreamType.Raw });
         player.play(resource);
         connection.subscribe(player);
@@ -105,6 +107,7 @@ async function synthesizeAndPlay(text, connection, options = {}) {
         if (settled) return;
         settled = true;
         cleanup();
+        options.onPlaybackEnd?.({ provider: PROVIDER_NAME, ok: true });
         deferred.resolve();
     };
 
@@ -112,6 +115,7 @@ async function synthesizeAndPlay(text, connection, options = {}) {
         if (settled) return;
         settled = true;
         cleanup();
+        options.onPlaybackEnd?.({ provider: PROVIDER_NAME, ok: false, error: err });
         deferred.reject(err);
     };
 

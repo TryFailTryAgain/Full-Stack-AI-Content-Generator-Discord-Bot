@@ -4,8 +4,13 @@
 */
 const { VoiceConnectionStatus, entersState, EndBehaviorType } = require('@discordjs/voice');
 const { OpusEncoder } = require('@discordjs/opus');
+const { Readable } = require('stream');
+const { spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 const WebSocket = require('ws');
 const axios = require('axios');
+const { createAudioPlayer, createAudioResource, StreamType } = require('@discordjs/voice');
 const { handleJoinVoiceChannel, gracefulDisconnect } = require('../voice_chat/channelConnection.js');
 const { followUpEphemeral } = require('../helperFunctions.js');
 const { createLLMHandler } = require('./llmHandler.js');
@@ -83,7 +88,7 @@ function resolveMember(channel, userId) {
 
 function createSpeechInterface(connection, speechConfig) {
     return {
-        async speak(text, { forceNoInterruptions } = {}) {
+        async speak(text, { forceNoInterruptions, onSynthesisStart, onAudioStart, onPlaybackEnd } = {}) {
             if (!text || !text.trim()) return null;
             
             const noInterruptions = typeof forceNoInterruptions === 'boolean'
@@ -93,7 +98,10 @@ function createSpeechInterface(connection, speechConfig) {
             // Build options based on provider
             const options = {
                 provider: speechConfig.provider,
-                noInterruptions
+                noInterruptions,
+                onSynthesisStart,
+                onAudioStart,
+                onPlaybackEnd
             };
             
             // Add provider-specific options
@@ -128,6 +136,249 @@ function createSpeechInterface(connection, speechConfig) {
         },
         getProvider() {
             return speechConfig.provider;
+        }
+    };
+}
+
+function createThinkingPcmStream() {
+    const sampleRate = 48000;
+    const channels = 2;
+    const bytesPerSample = 2;
+    const chunkMs = 40;
+    const chunkSamples = Math.floor((sampleRate * chunkMs) / 1000);
+    const cycleMs = 960;
+    const gain = 0.11;
+
+    let phase = 0;
+    let elapsedMs = 0;
+    let timer = null;
+
+    const stream = new Readable({ read() { } });
+
+    const writeChunk = () => {
+        const chunk = Buffer.alloc(chunkSamples * channels * bytesPerSample);
+        for (let i = 0; i < chunkSamples; i++) {
+            const tMs = (elapsedMs + (i * 1000 / sampleRate)) % cycleMs;
+            const firstTone = tMs >= 0 && tMs < 130;
+            const secondTone = tMs >= 260 && tMs < 390;
+            const toneHz = firstTone ? 700 : (secondTone ? 820 : 0);
+            const sample = toneHz
+                ? Math.floor(Math.sin(phase) * 32767 * gain)
+                : 0;
+
+            if (toneHz) {
+                phase += (2 * Math.PI * toneHz) / sampleRate;
+                if (phase > 2 * Math.PI) phase -= 2 * Math.PI;
+            }
+
+            const offset = i * channels * bytesPerSample;
+            chunk.writeInt16LE(sample, offset);
+            chunk.writeInt16LE(sample, offset + 2);
+        }
+
+        elapsedMs += chunkMs;
+        stream.push(chunk);
+    };
+
+    timer = setInterval(writeChunk, chunkMs);
+
+    const stop = () => {
+        if (timer) {
+            clearInterval(timer);
+            timer = null;
+        }
+        if (!stream.destroyed) {
+            stream.push(null);
+            stream.destroy();
+        }
+    };
+
+    stream.on('close', () => {
+        if (timer) {
+            clearInterval(timer);
+            timer = null;
+        }
+    });
+
+    return { stream, stop };
+}
+
+function createThinkingLoopController(connection) {
+    let thinkingPlayer = null;
+    let stopStream = null;
+    let ffmpegProc = null;
+
+    const configuredThinkingPath = String(process.env.VOICE_CHAT_TTS_THINKING_SOUND_PATH || '').trim();
+    const thinkingMp3Path = configuredThinkingPath
+        ? (path.isAbsolute(configuredThinkingPath)
+            ? configuredThinkingPath
+            : path.resolve(process.cwd(), configuredThinkingPath))
+        : path.resolve(__dirname, '../../Outputs/thinking-sounds.mp3');
+
+    return {
+        start() {
+            if (thinkingPlayer) return;
+            try {
+                const player = createAudioPlayer();
+
+                if (fs.existsSync(thinkingMp3Path)) {
+                    ffmpegProc = spawn('ffmpeg', [
+                        '-hide_banner', '-loglevel', 'error',
+                        '-stream_loop', '-1',
+                        '-i', thinkingMp3Path,
+                        '-f', 's16le', '-ar', '48000', '-ac', '2',
+                        'pipe:1'
+                    ]);
+
+                    ffmpegProc.once('error', (error) => {
+                        console.error('[VoiceChatTTS] Thinking MP3 ffmpeg error:', error);
+                    });
+
+                    const resource = createAudioResource(ffmpegProc.stdout, { inputType: StreamType.Raw });
+                    player.play(resource);
+                    stopStream = () => {
+                        try { ffmpegProc?.kill('SIGKILL'); } catch { }
+                        ffmpegProc = null;
+                    };
+                } else {
+                    const { stream, stop } = createThinkingPcmStream();
+                    const resource = createAudioResource(stream, { inputType: StreamType.Raw });
+                    player.play(resource);
+                    stopStream = stop;
+                }
+
+                connection.subscribe(player);
+                thinkingPlayer = player;
+            } catch (error) {
+                console.error('[VoiceChatTTS] Failed to start thinking loop:', error);
+            }
+        },
+        stop(reason = 'stop-thinking') {
+            if (!thinkingPlayer) return;
+            try { thinkingPlayer.stop(true); } catch { }
+            try { stopStream?.(); } catch { }
+            try { ffmpegProc?.kill('SIGKILL'); } catch { }
+            thinkingPlayer = null;
+            stopStream = null;
+            ffmpegProc = null;
+            if (process.env.ADVCONF_OPENAI_VOICE_CHAT_SYSTEM_LOGGING === 'true') {
+                console.log(`[VoiceChatTTS] Thinking loop stopped: ${reason}`);
+            }
+        }
+    };
+}
+
+function createTranscriptTurnProcessor({ llm, speech, config, connection, createThinkingLoop = createThinkingLoopController, canInterruptOverride = null }) {
+    const thinkingLoop = createThinkingLoop(connection);
+    const interruptAfterSpeechMs = numberFromEnv(process.env.VOICE_CHAT_TTS_INTERRUPT_AFTER_SPEECH_MS, 2000);
+    const turnState = {
+        isRunning: false,
+        pendingInference: false,
+        isThinking: false,
+        speechStartedAt: null
+    };
+
+    const markThinking = () => {
+        turnState.isThinking = true;
+        thinkingLoop.start();
+    };
+
+    const markAudioStarted = () => {
+        turnState.isThinking = false;
+        turnState.speechStartedAt = Date.now();
+        thinkingLoop.stop('tts-audio-started');
+    };
+
+    const resetTurnAudioState = (reason = 'reset') => {
+        turnState.isThinking = false;
+        turnState.speechStartedAt = null;
+        thinkingLoop.stop(reason);
+    };
+
+    const canInterruptForUserSpeech = () => {
+        if (config.preventInterruptions) return false;
+        if (turnState.isThinking) return false;
+        if (!speech.isSpeaking()) return false;
+        if (!turnState.speechStartedAt) return false;
+        return (Date.now() - turnState.speechStartedAt) >= interruptAfterSpeechMs;
+    };
+
+    const evaluateInterrupt = () => {
+        if (typeof canInterruptOverride === 'function') {
+            return Boolean(canInterruptOverride({
+                defaultCheck: canInterruptForUserSpeech,
+                turnState
+            }));
+        }
+        return canInterruptForUserSpeech();
+    };
+
+    const runPendingInference = async () => {
+        if (turnState.isRunning) return;
+        turnState.isRunning = true;
+
+        try {
+            while (turnState.pendingInference) {
+                turnState.pendingInference = false;
+                const reply = await llm.generateReply();
+                if (!reply) {
+                    resetTurnAudioState('no-reply');
+                    continue;
+                }
+
+                await speech.speak(reply, {
+                    onSynthesisStart: markThinking,
+                    onAudioStart: markAudioStarted,
+                    onPlaybackEnd: () => resetTurnAudioState('playback-ended')
+                });
+                resetTurnAudioState('speak-complete');
+            }
+        } catch (error) {
+            resetTurnAudioState('inference-error');
+            console.error('[VoiceChatTTS] Transcript processing failed:', error);
+        } finally {
+            turnState.isRunning = false;
+        }
+    };
+
+    return {
+        async ingestTranscript({ transcript, speaker }) {
+            if (!transcript) return;
+            try {
+                await llm.recordTranscript({
+                    userId: speaker?.userId,
+                    username: speaker?.username,
+                    text: transcript
+                });
+
+                if (!turnState.isRunning) {
+                    turnState.pendingInference = true;
+                    await runPendingInference();
+                    return;
+                }
+
+                // While current turn is still thinking (no assistant audio yet),
+                // keep transcript history but do not queue immediate follow-up inference.
+                if (turnState.isThinking) {
+                    return;
+                }
+
+                // During assistant speech, only allow follow-up generation if
+                // interruptions are currently allowed (post interrupt window).
+                if (evaluateInterrupt()) {
+                    turnState.pendingInference = true;
+                    speech.stop('user-interrupt-post-window');
+                }
+            } catch (error) {
+                console.error('[VoiceChatTTS] Failed to ingest transcript:', error);
+            }
+        },
+        canInterruptForUserSpeech: evaluateInterrupt,
+        isThinking() {
+            return turnState.isThinking;
+        },
+        stopThinking(reason = 'cleanup') {
+            resetTurnAudioState(reason);
         }
     };
 }
@@ -261,7 +512,7 @@ function injectSilence(transcription, config) {
     });
 }
 
-function attachDiscordAudio({ connection, channel, config, speech, transcription, audioState, onTranscript, onBatchAudio }) {
+function attachDiscordAudio({ connection, channel, config, speech, transcription, audioState, onTranscript, onBatchAudio, canInterrupt }) {
     const activeSpeakers = audioState.activeSpeakers;
 
     const handleSpeakingStart = (userId) => {
@@ -297,7 +548,13 @@ function attachDiscordAudio({ connection, channel, config, speech, transcription
             opusStream,
             decoder,
             bufferList,
-            timer: scheduleInterruption({ userId, config, speech }),
+            timer: scheduleInterruption({
+                userId,
+                config,
+                speech,
+                canInterrupt,
+                isSpeakerActive: () => activeSpeakers.has(userId)
+            }),
             metadata
         });
     };
@@ -305,7 +562,7 @@ function attachDiscordAudio({ connection, channel, config, speech, transcription
     const handleSpeakingEnd = (userId) => {
         const speaker = activeSpeakers.get(userId);
         if (!speaker) return;
-        if (speaker.timer) clearTimeout(speaker.timer);
+        if (speaker.timer?.cancel) speaker.timer.cancel();
         try { speaker.opusStream.destroy(); } catch { }
         activeSpeakers.delete(userId);
 
@@ -339,19 +596,39 @@ function attachDiscordAudio({ connection, channel, config, speech, transcription
         connection.receiver.speaking.off('end', handleSpeakingEnd);
         for (const speaker of activeSpeakers.values()) {
             try { speaker.opusStream.destroy(); } catch { }
-            if (speaker.timer) clearTimeout(speaker.timer);
+            if (speaker.timer?.cancel) speaker.timer.cancel();
         }
         activeSpeakers.clear();
     };
 }
 
-function scheduleInterruption({ userId, config, speech }) {
+function scheduleInterruption({ userId, config, speech, canInterrupt, isSpeakerActive }) {
     if (config.preventInterruptions) return null;
-    return setTimeout(() => {
+    let timer = null;
+
+    const attemptInterrupt = () => {
+        if (!isSpeakerActive?.()) return;
         if (!speech.isSpeaking()) return;
+
+        if (typeof canInterrupt === 'function' && !canInterrupt()) {
+            timer = setTimeout(attemptInterrupt, 250);
+            return;
+        }
+
         console.log(`[AudioBridge] Interrupting TTS due to user ${userId} speaking.`);
         speech.stop('user-interrupt');
-    }, config.interruptionDelayMs || 1000);
+    };
+
+    timer = setTimeout(attemptInterrupt, config.interruptionDelayMs || 1000);
+
+    return {
+        cancel() {
+            if (timer) {
+                clearTimeout(timer);
+                timer = null;
+            }
+        }
+    };
 }
 
 function flushTranscript(audioState, onTranscript) {
@@ -359,22 +636,6 @@ function flushTranscript(audioState, onTranscript) {
     audioState.partialTranscript = '';
     if (!transcript) return;
     onTranscript?.({ transcript, speaker: audioState.lastSpeaker });
-}
-
-async function handleTranscriptTurn({ llm, speech, transcript, speaker }) {
-    if (!transcript) return;
-    try {
-        const reply = await llm.handleTranscript({
-            userId: speaker?.userId,
-            username: speaker?.username,
-            text: transcript
-        });
-        if (reply) {
-            await speech.speak(reply);
-        }
-    } catch (error) {
-        console.error('[VoiceChatTTS] Transcript processing failed:', error);
-    }
 }
 
 async function startVoiceChatTTS({ interaction, channel, preventInterruptions = false }) {
@@ -409,11 +670,17 @@ async function startVoiceChatTTS({ interaction, channel, preventInterruptions = 
         ws: session.transcription?.ws,
         discordConnection: session.connection
     });
+    const turnProcessor = createTranscriptTurnProcessor({
+        llm,
+        speech,
+        config: config.audio,
+        connection: session.connection
+    });
 
-    const transcriptFlush = () => flushTranscript(audioState, payload => handleTranscriptTurn({ llm, speech, ...payload }));
+    const transcriptFlush = () => flushTranscript(audioState, payload => turnProcessor.ingestTranscript(payload));
 
     transcriptionHandlers.onSpeechStart = () => {
-        if (!config.audio.preventInterruptions && speech.isSpeaking()) {
+        if (!config.audio.preventInterruptions && turnProcessor.canInterruptForUserSpeech()) {
             speech.stop('vad-interrupt');
         }
     };
@@ -429,16 +696,18 @@ async function startVoiceChatTTS({ interaction, channel, preventInterruptions = 
         speech,
         transcription: session.transcription,
         audioState,
-        onTranscript: (payload) => handleTranscriptTurn({ llm, speech, ...payload }),
+        onTranscript: (payload) => turnProcessor.ingestTranscript(payload),
         onBatchAudio: ({ buffer, speaker }) => {
             if (!buffer?.length) return;
             console.log('[VoiceChatTTS] Batch mode placeholder for', speaker?.username || speaker?.userId);
-        }
+        },
+        canInterrupt: () => turnProcessor.canInterruptForUserSpeech()
     });
 
     const cleanup = createCleanup(async () => {
         state.setVoiceChatShutdownStatus(true);
         try { session.detachAudio?.(); } catch (error) { console.error('[VoiceChatTTS] Failed to detach audio:', error); }
+        try { turnProcessor.stopThinking('cleanup'); } catch (error) { console.error('[VoiceChatTTS] Failed to stop thinking loop:', error); }
         try { speech.stop('shutdown'); } catch (error) { console.error('[VoiceChatTTS] Failed to stop speech:', error); }
         try { await session.transcription?.close(); } catch (error) { console.error('[VoiceChatTTS] Failed to close transcription:', error); }
         await gracefulDisconnect(session.transcription?.ws, session.connection);
@@ -535,4 +804,14 @@ function setupWsMessageLogging(ws) {
     });
 }
 
-module.exports = { startVoiceChatTTS };
+module.exports = {
+    startVoiceChatTTS,
+    __testables: {
+        parseBooleanEnv,
+        numberFromEnv,
+        createThinkingPcmStream,
+        createThinkingLoopController,
+        createTranscriptTurnProcessor,
+        scheduleInterruption
+    }
+};

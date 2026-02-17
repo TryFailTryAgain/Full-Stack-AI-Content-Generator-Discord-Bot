@@ -806,6 +806,170 @@ describe('voice-chat-tts helpers', () => {
         process.env.VOICE_CHAT_TTS_PROVIDER = originalProvider;
         process.env.VOICE_CHAT_TTS_LLM_BACKEND = originalBackend;
     });
+
+    test('thinking-phase transcripts are history-only and do not auto-queue next inference', async () => {
+        const mod = require('../functions/voice_chat_tts/voice-chat-tts.js');
+        const { createTranscriptTurnProcessor } = mod.__testables;
+
+        const llm = {
+            recordTranscript: jest.fn().mockResolvedValue('ok'),
+            generateReply: jest.fn().mockResolvedValue('assistant-reply-1')
+        };
+
+        let releaseFirstSpeak;
+        const firstSpeakDone = new Promise((resolve) => { releaseFirstSpeak = resolve; });
+        let speakCallCount = 0;
+
+        const speech = {
+            speak: jest.fn().mockImplementation(async (_text, hooks = {}) => {
+                speakCallCount += 1;
+                hooks.onSynthesisStart?.();
+                if (speakCallCount === 1) {
+                    await firstSpeakDone;
+                }
+                hooks.onAudioStart?.();
+                hooks.onPlaybackEnd?.();
+                return true;
+            }),
+            stop: jest.fn(),
+            isSpeaking: jest.fn().mockReturnValue(true)
+        };
+
+        const processor = createTranscriptTurnProcessor({
+            llm,
+            speech,
+            config: { preventInterruptions: false },
+            connection: { subscribe: jest.fn() },
+            createThinkingLoop: () => ({ start: jest.fn(), stop: jest.fn() })
+        });
+
+        const first = processor.ingestTranscript({ transcript: 'first', speaker: { userId: 'u1', username: 'U1' } });
+        await new Promise((resolve) => setImmediate(resolve));
+        const second = processor.ingestTranscript({ transcript: 'during thinking', speaker: { userId: 'u2', username: 'U2' } });
+
+        releaseFirstSpeak();
+        await Promise.all([first, second]);
+
+        expect(llm.recordTranscript).toHaveBeenCalledTimes(2);
+        expect(llm.generateReply).toHaveBeenCalledTimes(1);
+        expect(speech.stop).not.toHaveBeenCalled();
+    });
+
+    test('new invocation after speech interrupt window queues follow-up generation', async () => {
+        const mod = require('../functions/voice_chat_tts/voice-chat-tts.js');
+        const { createTranscriptTurnProcessor } = mod.__testables;
+
+        const llm = {
+            recordTranscript: jest.fn().mockResolvedValue('ok'),
+            generateReply: jest.fn()
+                .mockResolvedValueOnce('assistant-reply-1')
+                .mockResolvedValueOnce('assistant-reply-2')
+        };
+
+        let releaseFirstSpeak;
+        const firstSpeakDone = new Promise((resolve) => { releaseFirstSpeak = resolve; });
+        let resolveFirstAudioStarted;
+        const firstAudioStarted = new Promise((resolve) => { resolveFirstAudioStarted = resolve; });
+        let speakCallCount = 0;
+
+        const speech = {
+            speak: jest.fn().mockImplementation(async (_text, hooks = {}) => {
+                speakCallCount += 1;
+                hooks.onSynthesisStart?.();
+                hooks.onAudioStart?.();
+                if (speakCallCount === 1) {
+                    resolveFirstAudioStarted();
+                    await firstSpeakDone;
+                }
+                hooks.onPlaybackEnd?.();
+                return true;
+            }),
+            stop: jest.fn(),
+            isSpeaking: jest.fn().mockReturnValue(true)
+        };
+
+        const processor = createTranscriptTurnProcessor({
+            llm,
+            speech,
+            config: { preventInterruptions: false },
+            connection: { subscribe: jest.fn() },
+            createThinkingLoop: () => ({ start: jest.fn(), stop: jest.fn() }),
+            canInterruptOverride: () => true
+        });
+
+        const first = processor.ingestTranscript({ transcript: 'first', speaker: { userId: 'u1', username: 'U1' } });
+        await firstAudioStarted;
+
+        const second = processor.ingestTranscript({ transcript: 'new invocation while speaking', speaker: { userId: 'u2', username: 'U2' } });
+        await new Promise((resolve) => setImmediate(resolve));
+
+        expect(speech.stop).toHaveBeenCalledWith('user-interrupt-post-window');
+
+        releaseFirstSpeak();
+        await Promise.all([first, second]);
+
+        expect(llm.recordTranscript).toHaveBeenCalledTimes(2);
+        expect(llm.generateReply).toHaveBeenCalledTimes(2);
+    });
+
+    test('thinking loop uses MP3 file when Outputs/thinking-sounds.mp3 exists', () => {
+        const mod = require('../functions/voice_chat_tts/voice-chat-tts.js');
+        const { createThinkingLoopController } = mod.__testables;
+        const fsModule = require('fs');
+        const childProc = require('child_process');
+        const voice = require('@discordjs/voice');
+
+        const existsSpy = jest.spyOn(fsModule, 'existsSync').mockReturnValue(true);
+        childProc.spawn.mockClear();
+        voice.createAudioPlayer.mockClear();
+        voice.createAudioResource.mockClear();
+
+        const connection = { subscribe: jest.fn() };
+        const controller = createThinkingLoopController(connection);
+
+        controller.start();
+
+        expect(childProc.spawn).toHaveBeenCalledTimes(1);
+        const [command, args] = childProc.spawn.mock.calls[0];
+        expect(command).toBe('ffmpeg');
+        expect(args).toEqual(expect.arrayContaining(['-stream_loop', '-1']));
+        expect(args.join(' ')).toContain('thinking-sounds.mp3');
+        expect(connection.subscribe).toHaveBeenCalledTimes(1);
+
+        controller.stop('test-stop');
+        const createdPlayer = voice.createAudioPlayer.mock.results[0]?.value;
+        expect(createdPlayer.stop).toHaveBeenCalledWith(true);
+
+        existsSpy.mockRestore();
+    });
+
+    test('thinking loop falls back to synthetic tone when MP3 file is missing', () => {
+        const mod = require('../functions/voice_chat_tts/voice-chat-tts.js');
+        const { createThinkingLoopController } = mod.__testables;
+        const fsModule = require('fs');
+        const childProc = require('child_process');
+        const voice = require('@discordjs/voice');
+
+        const existsSpy = jest.spyOn(fsModule, 'existsSync').mockReturnValue(false);
+        childProc.spawn.mockClear();
+        voice.createAudioPlayer.mockClear();
+        voice.createAudioResource.mockClear();
+
+        const connection = { subscribe: jest.fn() };
+        const controller = createThinkingLoopController(connection);
+
+        controller.start();
+
+        expect(childProc.spawn).not.toHaveBeenCalled();
+        expect(voice.createAudioResource).toHaveBeenCalledTimes(1);
+        expect(connection.subscribe).toHaveBeenCalledTimes(1);
+
+        controller.stop('test-stop');
+        const createdPlayer = voice.createAudioPlayer.mock.results[0]?.value;
+        expect(createdPlayer.stop).toHaveBeenCalledWith(true);
+
+        existsSpy.mockRestore();
+    });
 });
 
 // ── Integration: LLM + TTS pipeline mock ───────────────────────────────────

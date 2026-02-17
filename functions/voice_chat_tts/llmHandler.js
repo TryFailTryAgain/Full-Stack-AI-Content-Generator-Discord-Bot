@@ -220,16 +220,17 @@ function createLLMHandler({ interaction, config = {}, ws = null, discordConnecti
         const greetingPrompt = (typeof envGreeting === 'string' && envGreeting.trim().length > 0)
             ? envGreeting.trim()
             : 'You just joined the Discord voice channel. Say a brief, friendly greeting to everyone present.';
-        pushUserTurn({ username: 'system-injected', text: greetingPrompt });
-        const reply = await promptModel();
-        if (reply) pushAssistantTurn(reply);
-        return reply;
+        return handleTranscript({ userId: 'system-injected', username: 'system-injected', text: greetingPrompt });
     }
 
-    async function handleTranscript({ userId, username, text }) {
+    async function recordTranscript({ userId, username, text }) {
         const safeText = await ensureSafeContent(text);
         pushUserTurn({ username: username || userId, text: safeText });
         console.log(`[LLM] Transcript from ${username || userId}: ${safeText.substring(0, 100)}...`);
+        return safeText;
+    }
+
+    async function generateReply() {
         const reply = await promptModel();
         if (reply) {
             pushAssistantTurn(reply);
@@ -238,9 +239,16 @@ function createLLMHandler({ interaction, config = {}, ws = null, discordConnecti
         return reply;
     }
 
+    async function handleTranscript({ userId, username, text }) {
+        await recordTranscript({ userId, username, text });
+        return generateReply();
+    }
+
     return {
         generateGreeting,
-        handleTranscript
+        handleTranscript,
+        recordTranscript,
+        generateReply
     };
 }
 

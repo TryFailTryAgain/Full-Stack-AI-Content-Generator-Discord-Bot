@@ -104,7 +104,7 @@ function buildInputParams(text, options = {}) {
  * @param {number} requestStart - Timestamp when request started
  * @returns {Promise<void>}
  */
-async function streamToDiscord(audioStream, connection, requestStart) {
+async function streamToDiscord(audioStream, connection, requestStart, callbacks = {}) {
     let settled = false;
 
     const deferred = {};
@@ -134,6 +134,7 @@ async function streamToDiscord(audioStream, connection, requestStart) {
     const startPlayback = () => {
         if (playbackInitialized) return;
         playbackInitialized = true;
+        callbacks.onAudioStart?.({ provider: PROVIDER_NAME });
         const resource = createAudioResource(ff.stdout, { inputType: StreamType.Raw });
         player.play(resource);
         connection.subscribe(player);
@@ -155,6 +156,7 @@ async function streamToDiscord(audioStream, connection, requestStart) {
         if (settled) return;
         settled = true;
         cleanup();
+        callbacks.onPlaybackEnd?.({ provider: PROVIDER_NAME, ok: true });
         deferred.resolve();
     };
 
@@ -162,6 +164,7 @@ async function streamToDiscord(audioStream, connection, requestStart) {
         if (settled) return;
         settled = true;
         cleanup();
+        callbacks.onPlaybackEnd?.({ provider: PROVIDER_NAME, ok: false, error: err });
         deferred.reject(err);
     };
 
@@ -254,7 +257,7 @@ async function streamToDiscord(audioStream, connection, requestStart) {
  * @param {number} requestStart - Timestamp when request started
  * @returns {Promise<void>}
  */
-async function streamAudioFromUrl(audioUrl, connection, requestStart) {
+async function streamAudioFromUrl(audioUrl, connection, requestStart, callbacks = {}) {
     let settled = false;
 
     const deferred = {};
@@ -289,6 +292,7 @@ async function streamAudioFromUrl(audioUrl, connection, requestStart) {
     const startPlayback = () => {
         if (playbackInitialized) return;
         playbackInitialized = true;
+        callbacks.onAudioStart?.({ provider: PROVIDER_NAME });
         const resource = createAudioResource(ff.stdout, { inputType: StreamType.Raw });
         player.play(resource);
         connection.subscribe(player);
@@ -311,6 +315,7 @@ async function streamAudioFromUrl(audioUrl, connection, requestStart) {
         if (settled) return;
         settled = true;
         cleanup();
+        callbacks.onPlaybackEnd?.({ provider: PROVIDER_NAME, ok: true });
         deferred.resolve();
     };
 
@@ -318,6 +323,7 @@ async function streamAudioFromUrl(audioUrl, connection, requestStart) {
         if (settled) return;
         settled = true;
         cleanup();
+        callbacks.onPlaybackEnd?.({ provider: PROVIDER_NAME, ok: false, error: err });
         deferred.reject(err);
     };
 
@@ -368,7 +374,7 @@ async function streamAudioFromUrl(audioUrl, connection, requestStart) {
  * @param {number} requestStart - Timestamp when request started
  * @returns {Promise<void>}
  */
-async function streamFromReplicateUrl(streamUrl, connection, requestStart) {
+async function streamFromReplicateUrl(streamUrl, connection, requestStart, callbacks = {}) {
     let settled = false;
 
     const deferred = {};
@@ -410,6 +416,7 @@ async function streamFromReplicateUrl(streamUrl, connection, requestStart) {
     const startPlayback = () => {
         if (playbackInitialized) return;
         playbackInitialized = true;
+        callbacks.onAudioStart?.({ provider: PROVIDER_NAME });
         const resource = createAudioResource(ff.stdout, { inputType: StreamType.Raw });
         player.play(resource);
         connection.subscribe(player);
@@ -433,6 +440,7 @@ async function streamFromReplicateUrl(streamUrl, connection, requestStart) {
         settled = true;
         console.log(`[TTS:Qwen3] Stream complete, total bytes: ${totalBytes}`);
         cleanup();
+        callbacks.onPlaybackEnd?.({ provider: PROVIDER_NAME, ok: true });
         deferred.resolve();
     };
 
@@ -440,6 +448,7 @@ async function streamFromReplicateUrl(streamUrl, connection, requestStart) {
         if (settled) return;
         settled = true;
         cleanup();
+        callbacks.onPlaybackEnd?.({ provider: PROVIDER_NAME, ok: false, error: err });
         deferred.reject(err);
     };
 
@@ -505,6 +514,7 @@ async function synthesizeAndPlay(text, connection, options = {}) {
 
     const requestStart = Date.now();
     const inputParams = buildInputParams(text.trim(), options);
+    options.onSynthesisStart?.({ provider: PROVIDER_NAME });
     
     console.log(`[TTS:Qwen3] Requesting: mode=${inputParams.mode}, speaker=${inputParams.speaker || 'N/A'}`);
 
@@ -527,7 +537,10 @@ async function synthesizeAndPlay(text, connection, options = {}) {
             
             // Start streaming from the URL immediately
             // The stream will provide audio data as it's generated
-            await streamFromReplicateUrl(prediction.urls.stream, connection, requestStart);
+            await streamFromReplicateUrl(prediction.urls.stream, connection, requestStart, {
+                onAudioStart: options.onAudioStart,
+                onPlaybackEnd: options.onPlaybackEnd
+            });
             
         } else {
             // Fallback: wait for prediction to complete and stream from output URL
@@ -554,7 +567,10 @@ async function synthesizeAndPlay(text, connection, options = {}) {
 
             // Stream from output URL
             const audioUrl = typeof output === 'string' ? output : output.toString();
-            await streamAudioFromUrl(audioUrl, connection, requestStart);
+            await streamAudioFromUrl(audioUrl, connection, requestStart, {
+                onAudioStart: options.onAudioStart,
+                onPlaybackEnd: options.onPlaybackEnd
+            });
         }
 
     } catch (error) {
