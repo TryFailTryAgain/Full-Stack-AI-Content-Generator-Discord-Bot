@@ -129,7 +129,7 @@ const {
     startSilenceStream,
     stopSilenceStream,
 } = require('../functions/voice_chat/openaiControl.js');
-const { truncateAudio } = require('../functions/voice_chat/audioStreaming.js');
+const { truncateAudio, streamUserAudioToOpenAI } = require('../functions/voice_chat/audioStreaming.js');
 const { setupVoiceChatTimeLimit } = require('../functions/voice_chat/sessionManagement.js');
 const { joinVoiceChannel } = require('@discordjs/voice');
 const WebSocket = require('ws');
@@ -431,6 +431,7 @@ describe('audioStreaming', () => {
 
     beforeEach(() => {
         jest.clearAllMocks();
+        state.isVoiceChatShuttingDown = false;
         mockWs = {
             readyState: WebSocket.OPEN,
             send: jest.fn(),
@@ -506,6 +507,90 @@ describe('audioStreaming', () => {
 
             truncateAudio(closedWs, 'item-y');
             expect(closedWs.send).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('streamUserAudioToOpenAI', () => {
+        beforeEach(() => {
+            jest.useFakeTimers();
+        });
+
+        afterEach(() => {
+            jest.useRealTimers();
+        });
+
+        function createStreamingHarness() {
+            const { PassThrough } = require('stream');
+            const speakingHandlers = {};
+            const userStreams = new Map();
+
+            const connection = {
+                receiver: {
+                    speaking: {
+                        on: jest.fn((event, handler) => {
+                            speakingHandlers[event] = handler;
+                        })
+                    },
+                    subscribe: jest.fn((userId) => {
+                        const opusStream = new PassThrough();
+                        userStreams.set(userId, opusStream);
+                        return opusStream;
+                    })
+                }
+            };
+
+            const ws = {
+                readyState: WebSocket.OPEN,
+                send: jest.fn(),
+                on: jest.fn(),
+            };
+
+            return { connection, ws, speakingHandlers, userStreams };
+        }
+
+        test('mixes and forwards audio from multiple simultaneous speakers', () => {
+            const { connection, ws, speakingHandlers, userStreams } = createStreamingHarness();
+
+            streamUserAudioToOpenAI(connection, ws, false);
+
+            expect(speakingHandlers.start).toBeDefined();
+            speakingHandlers.start('user-1');
+            speakingHandlers.start('user-2');
+
+            userStreams.get('user-1').write(Buffer.from([0x00, 0x01, 0x02, 0x03]));
+            userStreams.get('user-2').write(Buffer.from([0x03, 0x02, 0x01, 0x00]));
+            jest.advanceTimersByTime(25);
+
+            const audioAppends = ws.send.mock.calls
+                .map(([payload]) => JSON.parse(payload))
+                .filter(event => event.type === 'input_audio_buffer.append');
+
+            expect(audioAppends.length).toBeGreaterThan(0);
+            expect(audioAppends.some(event => typeof event.audio === 'string' && event.audio.length > 0)).toBe(true);
+        });
+
+        test('debounces speaker end so quick resume does not resubscribe stream', () => {
+            const { connection, ws, speakingHandlers, userStreams } = createStreamingHarness();
+
+            streamUserAudioToOpenAI(connection, ws, false);
+
+            speakingHandlers.start('user-rapid');
+            const firstStream = userStreams.get('user-rapid');
+
+            speakingHandlers.end('user-rapid');
+            jest.advanceTimersByTime(100);
+            speakingHandlers.start('user-rapid');
+
+            // Quick resume should keep prior speaker pipeline alive.
+            expect(connection.receiver.subscribe).toHaveBeenCalledTimes(1);
+
+            firstStream.write(Buffer.from([0x01, 0x00, 0x01, 0x00]));
+            jest.advanceTimersByTime(25);
+
+            const audioAppends = ws.send.mock.calls
+                .map(([payload]) => JSON.parse(payload))
+                .filter(event => event.type === 'input_audio_buffer.append');
+            expect(audioAppends.length).toBeGreaterThan(0);
         });
     });
 });

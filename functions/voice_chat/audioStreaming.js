@@ -14,33 +14,75 @@ const { cancelResponse, startSilenceStream, stopSilenceStream } = require('./ope
 
 // Custom PCM-16LE mono sum-and-average mixer
 class PCMMonoMixer {
-    constructor(ws) { this.ws = ws; this.buffers = new Map(); }
-    updateBuffer(userId, chunk) {
-        const prev = this.buffers.get(userId) || Buffer.alloc(0);
-        this.buffers.set(userId, Buffer.concat([prev, chunk]));
-        this.mixAndSend();
+    constructor(ws, options = {}) {
+        this.ws = ws;
+        this.buffers = new Map();
+        this.sampleRate = options.sampleRate || 24000;
+        this.frameMs = options.frameMs || 20;
+        this.flushIntervalMs = options.flushIntervalMs || 20;
+        this.maxBufferedFrames = options.maxBufferedFrames || 50;
+        this.frameSizeBytes = Math.floor((this.sampleRate * this.frameMs / 1000) * 2);
+        if (this.frameSizeBytes % 2 !== 0) this.frameSizeBytes -= 1;
+        this.flushTimer = null;
     }
+
+    start() {
+        if (this.flushTimer) return;
+        this.flushTimer = setInterval(() => this.mixAndSend(), this.flushIntervalMs);
+    }
+
+    stop() {
+        if (this.flushTimer) {
+            clearInterval(this.flushTimer);
+            this.flushTimer = null;
+        }
+        this.buffers.clear();
+    }
+
+    updateBuffer(userId, chunk) {
+        if (!Buffer.isBuffer(chunk) || chunk.length === 0) return;
+        const prev = this.buffers.get(userId) || Buffer.alloc(0);
+        let merged = Buffer.concat([prev, chunk]);
+        const maxBytes = this.frameSizeBytes * this.maxBufferedFrames;
+        if (merged.length > maxBytes) {
+            merged = merged.subarray(merged.length - maxBytes);
+        }
+        this.buffers.set(userId, merged);
+    }
+
     removeBuffer(userId) { this.buffers.delete(userId); }
+
     mixAndSend() {
-        if (!this.ws || this.buffers.size === 0) return;
-        const bufs = Array.from(this.buffers.values());
-        const maxLen = Math.max(...bufs.map(b => b.length));
-        const mixed = Buffer.alloc(maxLen);
-        const count = bufs.length;
-        for (let i = 0; i < maxLen; i += 2) {
-            let sum = 0;
-            for (const buf of bufs) {
-                sum += (i < buf.length ? buf.readInt16LE(i) : 0);
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN || this.buffers.size === 0) return;
+
+        const mixed = Buffer.alloc(this.frameSizeBytes);
+        let contributorCount = 0;
+
+        for (const [userId, buffer] of this.buffers.entries()) {
+            if (!buffer || buffer.length === 0) continue;
+            contributorCount += 1;
+
+            const readLength = Math.min(this.frameSizeBytes, buffer.length - (buffer.length % 2));
+            for (let i = 0; i < this.frameSizeBytes; i += 2) {
+                const existing = mixed.readInt16LE(i);
+                const sample = i < readLength ? buffer.readInt16LE(i) : 0;
+                let sum = existing + sample;
+                sum = Math.max(-32768, Math.min(32767, sum));
+                mixed.writeInt16LE(sum, i);
             }
-            let avg = sum / count;
-            avg = Math.max(-32768, Math.min(32767, avg));
+
+            this.buffers.set(userId, buffer.subarray(readLength));
+        }
+
+        if (contributorCount === 0) return;
+
+        for (let i = 0; i < this.frameSizeBytes; i += 2) {
+            const value = mixed.readInt16LE(i);
+            const avg = Math.max(-32768, Math.min(32767, Math.trunc(value / contributorCount)));
             mixed.writeInt16LE(avg, i);
         }
+
         this.ws.send(JSON.stringify({ type: 'input_audio_buffer.append', audio: mixed.toString('base64') }));
-        // reset buffers
-        for (const key of this.buffers.keys()) {
-            this.buffers.set(key, Buffer.alloc(0));
-        }
     }
 }
 
@@ -293,14 +335,23 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, intera
 
     // Track active speaking users to prevent duplicate streams
     const activeSpeakers = new Map();
+    const endTimers = new Map();
+    const SPEAKER_END_DEBOUNCE_MS = 250;
 
     // Local variable to track the active silence stream control
     let silenceControl = null;
 
     // Initialize our custom mixer
     const mixer = new PCMMonoMixer(ws);
+    mixer.start();
 
     connection.receiver.speaking.on("start", userId => {
+                // If an end debounce timer exists, cancel cleanup because user resumed speaking
+                if (endTimers.has(userId)) {
+                    clearTimeout(endTimers.get(userId));
+                    endTimers.delete(userId);
+                }
+
         // Don't process new speakers if shutting down
         if (state.isVoiceChatShuttingDown) {
             console.log(`--User ${userId} started speaking, but voice chat is shutting down. Ignoring audio input.`);
@@ -359,26 +410,37 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, intera
     // Handle stop speaking event to properly clean up resources
     connection.receiver.speaking.on("end", userId => {
         console.log(`--User ${userId} stopped speaking. Scheduling cleanup.`);
-        const endTime = Date.now();
-        const speaker = activeSpeakers.get(userId);
-        // If user resumed speaking after end, skip cleanup
-        if (speaker && speaker.timestamp > endTime) return;
-        // cleanup mixer buffer and user streams
-        mixer.removeBuffer(userId);
-        cleanup(userId);
 
-        // Check if any users are still speaking
-        if (activeSpeakers.size === 0) {
-            console.log(`-No one is currently speaking, starting silence stream`);
-            if (silenceControl) {
-                stopSilenceStream(silenceControl);
-            }
-            silenceControl = startSilenceStream(ws);
+        if (endTimers.has(userId)) {
+            clearTimeout(endTimers.get(userId));
         }
+
+        const timerId = setTimeout(() => {
+            // cleanup mixer buffer and user streams
+            mixer.removeBuffer(userId);
+            cleanup(userId);
+            endTimers.delete(userId);
+
+            // Check if any users are still speaking
+            if (activeSpeakers.size === 0) {
+                console.log(`-No one is currently speaking, starting silence stream`);
+                if (silenceControl) {
+                    stopSilenceStream(silenceControl);
+                }
+                silenceControl = startSilenceStream(ws);
+            }
+        }, SPEAKER_END_DEBOUNCE_MS);
+
+        endTimers.set(userId, timerId);
     });
 
     // Clean up function ensure we track and clean up resources for each user
     function cleanup(userId) {
+        if (endTimers.has(userId)) {
+            clearTimeout(endTimers.get(userId));
+            endTimers.delete(userId);
+        }
+
         if (activeSpeakers.has(userId)) {
             console.log(`-Cleaning up resources for user ${userId}`);
             const speakerData = activeSpeakers.get(userId);
@@ -391,6 +453,25 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, intera
             }
             activeSpeakers.delete(userId);
         }
+    }
+
+    function cleanupAll() {
+        for (const timerId of endTimers.values()) {
+            clearTimeout(timerId);
+        }
+        endTimers.clear();
+
+        for (const userId of Array.from(activeSpeakers.keys())) {
+            mixer.removeBuffer(userId);
+            cleanup(userId);
+        }
+
+        if (silenceControl) {
+            stopSilenceStream(silenceControl);
+            silenceControl = null;
+        }
+
+        mixer.stop();
     }
 
     // Listen for server-side speech detection and use it to drive interruption behavior
@@ -412,6 +493,9 @@ function streamUserAudioToOpenAI(connection, ws, noInterruptions = false, intera
             // Ignore non-JSON or unrelated messages
         }
     });
+
+    ws.on('close', () => cleanupAll());
+    ws.on('error', () => cleanupAll());
 }
 
 
