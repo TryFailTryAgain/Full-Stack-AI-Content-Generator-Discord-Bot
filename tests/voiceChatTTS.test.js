@@ -302,6 +302,11 @@ const ttsStreamer = require('../functions/voice_chat_tts/ttsStreamer.js');
 const { createLLMHandler } = require('../functions/voice_chat_tts/llmHandler.js');
 const { toolDef_generateImage, generate_image_tool } = require('../functions/tools/imageTool.js');
 const { toolDef_disconnectVoiceChat, disconnect_voice_chat_tool } = require('../functions/tools/voiceDisconnectTool.js');
+const {
+    toolDef_sendTextToChannel,
+    send_text_to_channel_tool,
+    splitForDiscord,
+} = require('../functions/tools/sendTextToChannelTool.js');
 
 // ── voiceGlobalState (TTS) ─────────────────────────────────────────────────
 
@@ -549,6 +554,8 @@ describe('llmHandler', () => {
             const payload = mockCompletionsCreate.mock.calls[0][0];
             expect(payload.tools).toBeDefined();
             expect(payload.tools.length).toBeGreaterThan(0);
+            const toolNames = payload.tools.map((tool) => tool?.function?.name).filter(Boolean);
+            expect(toolNames).toContain('send_text_to_channel');
         });
     });
 
@@ -608,6 +615,8 @@ describe('llmHandler', () => {
                 expect(tool.type).toBe('function');
                 expect(tool.name).toBeDefined();
             });
+            const toolNames = payload.tools.map((tool) => tool?.name).filter(Boolean);
+            expect(toolNames).toContain('send_text_to_channel');
         });
     });
 
@@ -707,6 +716,46 @@ describe('llmHandler', () => {
             expect(result).toBe('I generated the image for you!');
             console.log(formatMetrics('llm.handleTranscript with tool call', durationMs));
         });
+
+        test('handles send_text_to_channel tool call', async () => {
+            mockCompletionsCreate
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: null,
+                            role: 'assistant',
+                            tool_calls: [{
+                                id: 'call_send_text_1',
+                                type: 'function',
+                                function: {
+                                    name: 'send_text_to_channel',
+                                    arguments: JSON.stringify({ content: '```js\nconsole.log("hi")\n```' }),
+                                },
+                            }],
+                        },
+                    }],
+                })
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: { content: 'I sent that to chat.', role: 'assistant' },
+                    }],
+                });
+
+            const llm = createLLMHandler({
+                interaction,
+                config: { backend: 'completions', model: 'gpt-4o-mini', maxTokens: '200', systemPrompt: 'x' },
+            });
+
+            const result = await llm.handleTranscript({
+                userId: '1',
+                username: 'User1',
+                text: 'Please write the code in chat',
+            });
+
+            expect(mockCompletionsCreate).toHaveBeenCalledTimes(2);
+            expect(interaction.channel.send).toHaveBeenCalledWith({ content: '```js\nconsole.log("hi")\n```' });
+            expect(result).toBe('I sent that to chat.');
+        });
     });
 });
 
@@ -774,6 +823,40 @@ describe('tools/voiceDisconnectTool', () => {
         await disconnect_voice_chat_tool(mockWs, mockConn);
 
         expect(gracefulDisconnect).toHaveBeenCalledWith(mockWs, mockConn);
+    });
+});
+
+// ── tools/sendTextToChannelTool ───────────────────────────────────────────
+
+describe('tools/sendTextToChannelTool', () => {
+    test('toolDef_sendTextToChannel has correct schema', () => {
+        expect(toolDef_sendTextToChannel).toBeDefined();
+        expect(toolDef_sendTextToChannel.type).toBe('function');
+        expect(toolDef_sendTextToChannel.function.name).toBe('send_text_to_channel');
+        expect(toolDef_sendTextToChannel.function.parameters.required).toContain('content');
+    });
+
+    test('send_text_to_channel_tool sends message to interaction channel', async () => {
+        const mockInteraction = createMockInteraction({
+            channel: { send: jest.fn().mockResolvedValue(undefined) },
+        });
+
+        const functionCall = {
+            arguments: JSON.stringify({ content: 'Structured text output' }),
+        };
+
+        const result = await send_text_to_channel_tool(functionCall, mockInteraction);
+
+        expect(mockInteraction.channel.send).toHaveBeenCalledWith({ content: 'Structured text output' });
+        expect(result).toBe('Message sent to channel.');
+    });
+
+    test('splitForDiscord splits oversized content', () => {
+        const longText = `# Heading\n\n${'line\n'.repeat(900)}`;
+        const chunks = splitForDiscord(longText);
+
+        expect(chunks.length).toBeGreaterThan(1);
+        expect(chunks.every((chunk) => chunk.length <= 2000)).toBe(true);
     });
 });
 

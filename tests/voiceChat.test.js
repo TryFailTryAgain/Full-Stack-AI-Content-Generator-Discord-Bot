@@ -117,11 +117,17 @@ jest.mock('../functions/tools/voiceDisconnectTool.js', () => ({
     disconnect_voice_chat_tool: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('../functions/tools/sendTextToChannelTool.js', () => ({
+    toolDef_sendTextToChannel: { type: 'function', function: { name: 'send_text_to_channel', parameters: {} } },
+    send_text_to_channel_tool: jest.fn().mockResolvedValue('Message sent to channel.'),
+}));
+
 // ── Imports (after mocks) ──────────────────────────────────────────────────
 
 const state = require('../functions/voice_chat/voiceGlobalState.js');
 const { handleJoinVoiceChannel, gracefulDisconnect } = require('../functions/voice_chat/channelConnection.js');
 const {
+    setupRealtimeVoiceWS,
     updateSessionParams,
     injectMessageGetResponse,
     injectMessage,
@@ -133,6 +139,7 @@ const { truncateAudio, streamUserAudioToOpenAI } = require('../functions/voice_c
 const { setupVoiceChatTimeLimit } = require('../functions/voice_chat/sessionManagement.js');
 const { joinVoiceChannel } = require('@discordjs/voice');
 const WebSocket = require('ws');
+const { send_text_to_channel_tool } = require('../functions/tools/sendTextToChannelTool.js');
 
 // ── voiceGlobalState ───────────────────────────────────────────────────────
 
@@ -327,6 +334,140 @@ describe('openaiControl', () => {
             const sent = JSON.parse(mockWs.send.mock.calls[0][0]);
             expect(sent.session.input_audio_transcription).toEqual({ model: 'whisper-1' });
             process.env.ADVCONF_OPENAI_VOICE_CHAT_SYSTEM_LOGGING = origEnv;
+        });
+
+        test('accepts an array of tools without nesting', () => {
+            const params = {
+                instructions: 'Be helpful',
+                temperature: '0.7',
+                voice: 'alloy',
+                max_response_output_tokens: 500,
+                tools: [
+                    { type: 'function', function: { name: 'generate_image', parameters: { type: 'object', properties: {} } } },
+                    { type: 'function', function: { name: 'send_text_to_channel', parameters: { type: 'object', properties: {} } } },
+                ],
+            };
+
+            updateSessionParams(mockWs, params);
+            const sent = JSON.parse(mockWs.send.mock.calls[0][0]);
+            expect(Array.isArray(sent.session.tools)).toBe(true);
+            expect(Array.isArray(sent.session.tools[0])).toBe(false);
+            expect(sent.session.tools).toHaveLength(2);
+            expect(sent.session.tools[0].name).toBe('generate_image');
+            expect(sent.session.tools[1].name).toBe('send_text_to_channel');
+        });
+    });
+
+    describe('setupRealtimeVoiceWS tool calls', () => {
+        test('routes send_text_to_channel function calls to the tool', async () => {
+            const interaction = createMockInteraction({
+                channel: {
+                    id: '987654321',
+                    send: jest.fn().mockResolvedValue(undefined),
+                    awaitMessages: jest.fn().mockResolvedValue({ size: 0, first: () => null }),
+                },
+            });
+
+            const ws = await setupRealtimeVoiceWS(interaction);
+
+            const handlers = ws._listeners?.message || [];
+            expect(handlers.length).toBeGreaterThan(0);
+
+            const payload = JSON.stringify({
+                type: 'response.done',
+                response: {
+                    output: [{
+                        type: 'function_call',
+                        name: 'send_text_to_channel',
+                        arguments: JSON.stringify({ content: '## Notes\n- one\n- two' }),
+                    }],
+                },
+            });
+            handlers.forEach((handler) => handler(payload));
+
+            await new Promise((resolve) => setImmediate(resolve));
+
+            expect(send_text_to_channel_tool).toHaveBeenCalledTimes(1);
+            expect(send_text_to_channel_tool).toHaveBeenCalledWith(
+                expect.objectContaining({ name: 'send_text_to_channel' }),
+                interaction
+            );
+            expect(ws.send).toHaveBeenCalled();
+        });
+
+        test('handles response.output_item.done function call events', async () => {
+            const interaction = createMockInteraction({
+                channel: {
+                    id: '987654321',
+                    send: jest.fn().mockResolvedValue(undefined),
+                    awaitMessages: jest.fn().mockResolvedValue({ size: 0, first: () => null }),
+                },
+            });
+
+            const ws = await setupRealtimeVoiceWS(interaction);
+            const handlers = ws._listeners?.message || [];
+            expect(handlers.length).toBeGreaterThan(0);
+
+            const payload = JSON.stringify({
+                type: 'response.output_item.done',
+                item: {
+                    type: 'function_call',
+                    name: 'send_text_to_channel',
+                    call_id: 'call_abc123',
+                    arguments: JSON.stringify({ content: 'A structured note' }),
+                },
+            });
+
+            handlers.forEach((handler) => handler(payload));
+            await new Promise((resolve) => setImmediate(resolve));
+
+            expect(send_text_to_channel_tool).toHaveBeenCalledTimes(1);
+
+            const sentEvents = ws.send.mock.calls.map(([raw]) => JSON.parse(raw));
+            expect(sentEvents.some((event) => event.type === 'conversation.item.create' && event.item?.type === 'function_call_output' && event.item?.call_id === 'call_abc123')).toBe(true);
+            expect(sentEvents.some((event) => event.type === 'response.create')).toBe(true);
+        });
+
+        test('deduplicates same tool call when both output_item.done and response.done arrive', async () => {
+            const interaction = createMockInteraction({
+                channel: {
+                    id: '987654321',
+                    send: jest.fn().mockResolvedValue(undefined),
+                    awaitMessages: jest.fn().mockResolvedValue({ size: 0, first: () => null }),
+                },
+            });
+
+            const ws = await setupRealtimeVoiceWS(interaction);
+            const handlers = ws._listeners?.message || [];
+            expect(handlers.length).toBeGreaterThan(0);
+
+            const firstPayload = JSON.stringify({
+                type: 'response.output_item.done',
+                item: {
+                    type: 'function_call',
+                    name: 'send_text_to_channel',
+                    call_id: 'call_dupe_123',
+                    arguments: JSON.stringify({ content: 'A structured note' }),
+                },
+            });
+
+            const secondPayload = JSON.stringify({
+                type: 'response.done',
+                response: {
+                    output: [{
+                        type: 'function_call',
+                        name: 'send_text_to_channel',
+                        call_id: 'call_dupe_123',
+                        arguments: JSON.stringify({ content: 'A structured note' }),
+                    }],
+                },
+            });
+
+            handlers.forEach((handler) => handler(firstPayload));
+            handlers.forEach((handler) => handler(secondPayload));
+            await new Promise((resolve) => setImmediate(resolve));
+
+            expect(send_text_to_channel_tool).toHaveBeenCalledTimes(1);
         });
     });
 
@@ -714,4 +855,125 @@ describe('WebSocket message format validation', () => {
         stopSilenceStream(control);
         jest.useRealTimers();
     });
+});
+
+// ── LIVE API TESTS ─────────────────────────────────────────────────────────
+
+liveDescribe('Realtime tool calling (LIVE API)', () => {
+    test('realtime model can emit send_text_to_channel function call', async () => {
+        const apiKey = process.env.API_KEY_OPENAI_CHAT;
+        const wsUrl = process.env.VOICE_CHAT_MODEL_URL;
+
+        expect(typeof apiKey).toBe('string');
+        expect(apiKey.length).toBeGreaterThan(10);
+        expect(typeof wsUrl).toBe('string');
+        expect(wsUrl.startsWith('wss://')).toBe(true);
+
+        const RealWebSocket = jest.requireActual('ws');
+        const ws = new RealWebSocket(wsUrl, {
+            headers: {
+                Authorization: `Bearer ${apiKey}`,
+                'OpenAI-Beta': 'realtime=v1',
+            },
+        });
+
+        const cleanup = () => {
+            try {
+                if (ws.readyState === RealWebSocket.OPEN || ws.readyState === RealWebSocket.CONNECTING) {
+                    ws.close();
+                }
+            } catch { }
+        };
+
+        await new Promise((resolve, reject) => {
+            ws.once('open', resolve);
+            ws.once('error', reject);
+        });
+
+        const seenEvents = [];
+
+        try {
+            ws.send(JSON.stringify({
+                type: 'session.update',
+                session: {
+                    instructions: 'You are a concise assistant. Use tools when appropriate.',
+                    modalities: ['text'],
+                    tools: [
+                        {
+                            type: 'function',
+                            name: 'send_text_to_channel',
+                            description: 'Send markdown/text output to the Discord text channel.',
+                            parameters: {
+                                type: 'object',
+                                properties: {
+                                    content: {
+                                        type: 'string',
+                                    },
+                                },
+                                required: ['content'],
+                                additionalProperties: false,
+                            },
+                        },
+                    ],
+                },
+            }));
+
+            ws.send(JSON.stringify({
+                type: 'response.create',
+                response: {
+                    modalities: ['text'],
+                    instructions: 'Call send_text_to_channel with content exactly "LIVE_TOOL_TEST_OK" and do not answer normally first.',
+                },
+            }));
+
+            const functionCall = await new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    reject(new Error(`Timed out waiting for function call. Seen events: ${seenEvents.slice(-20).join(', ')}`));
+                }, 30000);
+
+                const onMessage = (raw) => {
+                    try {
+                        const msg = JSON.parse(raw);
+                        if (msg?.type) seenEvents.push(msg.type);
+
+                        const fromOutputItemDone =
+                            msg?.type === 'response.output_item.done' &&
+                            msg?.item?.type === 'function_call' &&
+                            msg?.item?.name === 'send_text_to_channel';
+
+                        const fromResponseDone =
+                            msg?.type === 'response.done' &&
+                            Array.isArray(msg?.response?.output) &&
+                            msg.response.output.some((item) => item?.type === 'function_call' && item?.name === 'send_text_to_channel');
+
+                        if (!fromOutputItemDone && !fromResponseDone) return;
+
+                        clearTimeout(timeout);
+                        ws.off('message', onMessage);
+
+                        if (fromOutputItemDone) {
+                            resolve(msg.item);
+                            return;
+                        }
+
+                        const item = msg.response.output.find((entry) => entry?.type === 'function_call' && entry?.name === 'send_text_to_channel');
+                        resolve(item);
+                    } catch {
+                        // Ignore non-JSON frames
+                    }
+                };
+
+                ws.on('message', onMessage);
+            });
+
+            expect(functionCall).toBeDefined();
+            expect(functionCall.name).toBe('send_text_to_channel');
+
+            const args = JSON.parse(functionCall.arguments || '{}');
+            expect(typeof args.content).toBe('string');
+            expect(args.content).toContain('LIVE_TOOL_TEST_OK');
+        } finally {
+            cleanup();
+        }
+    }, 60000);
 });
