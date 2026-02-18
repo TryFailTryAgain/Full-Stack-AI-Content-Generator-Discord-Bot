@@ -41,8 +41,10 @@
   - Optional 'no_interruptions' mode allows the AI to finish speaking even when users talk over it
   - Automatically detects and recognizes users in the voice channel
   - Supports realtime function calling via voice
+  - Can send structured outputs (like code blocks and long lists) to the same Discord text channel when written formatting is more useful than spoken output
 - /voice-chat-tts
   - Just like /voice-chat, but uses speech to text, sent to an LLM, then the voice response is generated using text to speech in realtime
+  - Can send structured outputs (like code blocks and long lists) to the same Discord text channel when the model determines written formatting is better than spoken output
 - /ad-lib-story
   - Generates a Madlibs-style story (optionally guided by your prompt) and sends a modal form for you to fill in placeholders before returning the final story
 
@@ -112,7 +114,7 @@
 - VOICE_CHAT_TIME_LIMIT: time limit for voice sessions in seconds
 - VOICE_CHAT_INTERRUPTION_DELAY: delay before AI is interrupted (ms)
 - VOICE_CHAT_IMAGE_MODEL: model used for image generation in voice chat
-- OPENAI_VOICE_CHAT_INSTRUCTIONS: system instructions for voice AI personality and behavior
+- OPENAI_VOICE_CHAT_INSTRUCTIONS: system instructions for /voice-chat (non-TTS realtime voice mode)
 - OPENAI_VOICE_CHAT_DISCONNECT_MESSAGE: message AI uses when session time expires
 - OPENAI_VOICE_CHAT_GREETING: initial greeting message when AI joins voice chat
 - OPENAI_VOICE_CHAT_VOICE: voice selection for OpenAI TTS (e.g., alloy)
@@ -124,6 +126,7 @@
 - OPENAI_TRANSCRIPTION_MODEL: model for speech-to-text transcription
 - OPENAI_STT_TRANSCRIPTION_PROMPT: optional prompt to guide transcription
 - OPENAI_STT_TRANSCRIPTION_LANGUAGE: language code for transcription (e.g., en)
+- OPENAI_VOICE_CHAT_TTS_INSTRUCTIONS: system instructions for /voice-chat-tts (separate from OPENAI_VOICE_CHAT_INSTRUCTIONS)
 - OPENAI_VOICE_CHAT_TTS_GREETING: initial greeting message when AI joins voice chat TTS
 - OPENAI_TTS_LLM_MODEL: LLM model used for text generation in TTS mode
 - OPENAI_TTS_MODEL: text-to-speech model for voice synthesis

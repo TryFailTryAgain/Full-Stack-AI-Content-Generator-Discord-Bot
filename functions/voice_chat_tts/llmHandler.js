@@ -7,6 +7,7 @@ const { OpenAI } = require('openai');
 const { moderateContent } = require('../moderation.js');
 const { toolDef_generateImage, generate_image_tool } = require('../tools/imageTool.js');
 const { toolDef_disconnectVoiceChat, disconnect_voice_chat_tool } = require('../tools/voiceDisconnectTool.js');
+const { toolDef_sendTextToChannel, send_text_to_channel_tool } = require('../tools/sendTextToChannelTool.js');
 
 const realtimeModerationEnabled = (() => {
     const flag = process.env.MODERATION_OPENAI_REALTIME;
@@ -26,6 +27,9 @@ const toolMap = {
             files: [attachment]
         });
         return 'Image sent to channel.';
+    },
+    send_text_to_channel: async ({ functionCall, interaction }) => {
+        return send_text_to_channel_tool(functionCall, interaction);
     }
 };
 
@@ -121,7 +125,7 @@ function createLLMHandler({ interaction, config = {}, ws = null, discordConnecti
     };
 
     function getTools() {
-        return [toolDef_generateImage, toolDef_disconnectVoiceChat].filter(Boolean);
+        return [toolDef_generateImage, toolDef_disconnectVoiceChat, toolDef_sendTextToChannel].filter(Boolean);
     }
 
     function pushUserTurn({ username, text }) {

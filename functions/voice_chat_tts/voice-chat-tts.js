@@ -67,7 +67,7 @@ function buildSessionConfig({ preventInterruptions }) {
             model: process.env.OPENAI_TTS_LLM_MODEL,
             maxTokens: process.env.VOICE_CHAT_TTS_MAX_TOKENS || '400',
             reasoningLevel: process.env.VOICE_CHAT_TTS_REASONING_LEVEL || 'none',
-            systemPrompt: process.env.OPENAI_VOICE_CHAT_INSTRUCTIONS || 'You are a voice assistant. Keep replies concise for speech.',
+            systemPrompt: process.env.OPENAI_VOICE_CHAT_TTS_INSTRUCTIONS || 'You are a voice assistant. Keep replies concise for speech.',
             maxMessages: process.env.VOICE_CHAT_TTS_CONVERSATION_MAX_MESSAGES || 'inf'
         }
     };

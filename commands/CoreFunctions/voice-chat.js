@@ -12,6 +12,7 @@ const { setupRealtimeVoiceWS, updateSessionParams, injectMessageGetResponse } = 
 const { streamOpenAIAudio, streamUserAudioToOpenAI } = require('../../functions/voice_chat/audioStreaming.js');
 const { setupVoiceChatTimeLimit } = require('../../functions/voice_chat/sessionManagement.js');
 const { toolDef_generateImage } = require('../../functions/tools/imageTool.js');
+const { toolDef_sendTextToChannel } = require('../../functions/tools/sendTextToChannelTool.js');
 
 module.exports = {
 	data: new SlashCommandBuilder()
@@ -44,7 +45,7 @@ module.exports = {
 			temperature: process.env.OPENAI_VOICE_CHAT_TEMPERATURE,
 			voice: process.env.OPENAI_VOICE_CHAT_VOICE,
 			max_response_output_tokens: process.env.OPENAI_VOICE_CHAT_MAX_TOKENS,
-			tools: toolDef_generateImage
+			tools: [toolDef_generateImage, toolDef_sendTextToChannel].filter(Boolean)
 		};
 		// Update the session with current environment parameters
 		updateSessionParams(ws, sessionParams);

@@ -43,50 +43,109 @@ async function setupRealtimeVoiceWS(interaction) {
 
 async function toolCallListener(ws, interaction) {
     const { generate_image_tool } = require('../tools/imageTool.js');
+    const { send_text_to_channel_tool } = require('../tools/sendTextToChannelTool.js');
     const { AttachmentBuilder } = require('discord.js');
+    const processedToolCalls = new Set();
 
-    ws.on('message', (message) => {
-        const serverMessage = JSON.parse(message);
-        // Check if the message is a finished response containing any function call
+    const sendToolOutputAndContinue = (functionCall, output) => {
+        const callId = functionCall.call_id || functionCall.id;
+        if (!callId) {
+            injectMessageGetResponse(ws, String(output || 'Tool executed.'));
+            return;
+        }
+
+        ws.send(JSON.stringify({
+            type: 'conversation.item.create',
+            item: {
+                type: 'function_call_output',
+                call_id: callId,
+                output: String(output || 'Tool executed successfully.')
+            }
+        }));
+
+        ws.send(JSON.stringify({
+            type: 'response.create',
+            response: {
+                modalities: ['audio', 'text']
+            }
+        }));
+    };
+
+    const extractFunctionCalls = (serverMessage) => {
         if (
             serverMessage.type === 'response.done' &&
-            Array.isArray(serverMessage.response?.output) &&
-            serverMessage.response.output.some(item => item.type === 'function_call')
+            Array.isArray(serverMessage.response?.output)
         ) {
+            return serverMessage.response.output.filter((item) => item?.type === 'function_call');
+        }
 
-            if (process.env.ADVCONF_OPENAI_VOICE_CHAT_SYSTEM_LOGGING === 'true') {
-                console.log("-Tool call requested");
-                console.log(serverMessage.response.output[0]);
+        if (
+            serverMessage.type === 'response.output_item.done' &&
+            serverMessage.item?.type === 'function_call'
+        ) {
+            return [serverMessage.item];
+        }
+
+        return [];
+    };
+
+    ws.on('message', async (message) => {
+        const serverMessage = JSON.parse(message);
+        const functionCalls = extractFunctionCalls(serverMessage);
+        if (!functionCalls.length) return;
+
+        if (process.env.ADVCONF_OPENAI_VOICE_CHAT_SYSTEM_LOGGING === 'true') {
+            console.log("-Tool call requested");
+            console.log(functionCalls[0]);
+        }
+
+        for (const functionCall of functionCalls) {
+            const callKey = functionCall.call_id || functionCall.id;
+            if (callKey && processedToolCalls.has(callKey)) {
+                if (process.env.ADVCONF_OPENAI_VOICE_CHAT_SYSTEM_LOGGING === 'true') {
+                    console.log(`-Skipping duplicate tool call: ${callKey}`);
+                }
+                continue;
+            }
+            if (callKey) {
+                processedToolCalls.add(callKey);
             }
 
-            // for each output item, process the function call
-            serverMessage.response.output.forEach(async (functionCall) => {
-                if (functionCall.type === "function_call") {
-                    // Route to the correct tool
-                    switch (functionCall.name) {
-                        case 'generate_image':
-                            console.log("-Tool call function executed: generate_image");
-                            try {
-                                // Generate the image using the tool            
-                                const imageBuffer = await generate_image_tool(functionCall, interaction);
+            switch (functionCall.name) {
+                case 'generate_image':
+                    console.log("-Tool call function executed: generate_image");
+                    try {
+                        const imageBuffer = await generate_image_tool(functionCall, interaction);
+                        if (!imageBuffer?.[0]) {
+                            sendToolOutputAndContinue(functionCall, 'Image generation failed.');
+                            continue;
+                        }
 
-                                // Create an attachment from the image buffer
-                                const attachment = new AttachmentBuilder(imageBuffer[0]);
-                                // Send the generated image to the text channel where the voice command was initiated
-                                await interaction.channel.send({
-                                    content: "Generated image from voice request",
-                                    files: [attachment]
-                                });
-                                injectMessageGetResponse(ws, "If this is the first image the user has asked for,  let the user know that the image has now been generated and can be viewed from the discord channel they summoned you from. If this is not the first image they asked for, just note that the image was successfully made. Include a comment about the image.");
-                            } catch (error) {
-                                console.error("Error processing generate_image tool call:", error);
-                                injectMessageGetResponse(ws, "Instruct to the user: Sorry, I encountered an error generating the image. I dont fully know when went wrong, but I can try again with that generation request if you would like me to.");
-                            }
-                            break;
-                        // More tools soon
+                        const attachment = new AttachmentBuilder(imageBuffer[0]);
+                        await interaction.channel.send({
+                            content: "Generated image from voice request",
+                            files: [attachment]
+                        });
+                        sendToolOutputAndContinue(functionCall, 'Image generated and sent to Discord channel.');
+                    } catch (error) {
+                        console.error("Error processing generate_image tool call:", error);
+                        sendToolOutputAndContinue(functionCall, 'Image generation failed.');
                     }
-                }
-            });
+                    break;
+                case 'send_text_to_channel':
+                    console.log("-Tool call function executed: send_text_to_channel");
+                    try {
+                        const result = await send_text_to_channel_tool(functionCall, interaction);
+                        sendToolOutputAndContinue(functionCall, result || 'Message sent to channel.');
+                    } catch (error) {
+                        console.error("Error processing send_text_to_channel tool call:", error);
+                        sendToolOutputAndContinue(functionCall, 'Failed to send text message to channel.');
+                    }
+                    break;
+                default:
+                    sendToolOutputAndContinue(functionCall, `Tool ${functionCall.name || 'unknown'} not found.`);
+                    break;
+            }
         }
     });
 }
@@ -107,6 +166,8 @@ function setupWsMessageLogging(ws) {
 
 // Update the session parameters for OpenAI voice API
 function updateSessionParams(ws, params) {
+    const tools = normalizeToolsForRealtime(params.tools);
+
     let event = null;
     if (process.env.ADVCONF_OPENAI_VOICE_CHAT_SYSTEM_LOGGING === 'true') {
         console.log(`-Session has enabled full logging.`);
@@ -124,7 +185,7 @@ function updateSessionParams(ws, params) {
                 input_audio_transcription: {
                     "model": "whisper-1"
                 },
-                tools: [params.tools]
+                tools
             }
         };
     } else {
@@ -139,12 +200,47 @@ function updateSessionParams(ws, params) {
                     eagerness: process.env.OPENAI_VOICE_CHAT_RESPONSE_EAGERNESS
                 },
                 max_response_output_tokens: params.max_response_output_tokens,
-                tools: [params.tools]
+                tools
             }
         };
     }
     console.log('-Updating session params');
     ws.send(JSON.stringify(event));
+}
+
+function normalizeToolsForRealtime(rawTools) {
+    const tools = Array.isArray(rawTools)
+        ? rawTools.filter(Boolean)
+        : (rawTools ? [rawTools] : []);
+
+    return tools
+        .map((tool) => {
+            if (!tool) return null;
+
+            if (tool.type === 'function' && tool.name) {
+                return {
+                    type: 'function',
+                    name: tool.name,
+                    description: tool.description,
+                    parameters: tool.parameters,
+                    strict: tool.strict
+                };
+            }
+
+            if (tool.type === 'function' && tool.function?.name) {
+                const { name, description, parameters, strict } = tool.function;
+                return {
+                    type: 'function',
+                    name,
+                    description,
+                    parameters,
+                    strict
+                };
+            }
+
+            return tool;
+        })
+        .filter(Boolean);
 }
 
 // Start sending empty audio packets to keep the semantic VAD processing correctly
