@@ -156,7 +156,7 @@
 - VOICE_FACT_CHECK_RECENT_MAX_CHARS: max total transcript characters included when preparing fact-check context
 
 [Qwen3-TTS Settings (via Replicate)]
-- REPLICATE_API_TOKEN: API token for Replicate (required for Qwen3-TTS)
+- API_KEY_REPLICATE: API token for Replicate (required for Qwen3-TTS)
 - QWEN3_TTS_MODE: TTS mode (custom_voice, voice_clone, voice_design)
 - QWEN3_TTS_SPEAKER: preset speaker for custom_voice mode
 - QWEN3_TTS_LANGUAGE: language for TTS (auto, English, Chinese, Spanish, etc.)
