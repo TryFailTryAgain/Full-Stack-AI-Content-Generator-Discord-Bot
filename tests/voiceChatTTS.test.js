@@ -1053,6 +1053,67 @@ describe('voice-chat-tts helpers', () => {
 
         existsSpy.mockRestore();
     });
+
+    test('detectFactCheckWakePhrase matches phrase inside larger sentence', () => {
+        const mod = require('../functions/voice_chat_tts/voice-chat-tts.js');
+        const { detectFactCheckWakePhrase } = mod.__testables;
+
+        expect(detectFactCheckWakePhrase('can you fact check that claim please')).toBe(true);
+        expect(detectFactCheckWakePhrase('we should do a FACT-CHECK now')).toBe(true);
+        expect(detectFactCheckWakePhrase('lets continue chatting')).toBe(false);
+    });
+
+    test('fact_check mode only runs LLM on wake phrase and posts detailed text output', async () => {
+        const mod = require('../functions/voice_chat_tts/voice-chat-tts.js');
+        const { createTranscriptTurnProcessor } = mod.__testables;
+
+        const llm = {
+            recordTranscript: jest.fn().mockResolvedValue('ok'),
+            generateReply: jest.fn().mockResolvedValue('assistant-reply-should-not-be-used'),
+            generateFactCheckReport: jest.fn().mockResolvedValue({
+                spokenSummary: 'Quick fact check: that statement is inaccurate.',
+                detailedAssessment: 'DETAILED FACT CHECK\n- Claim: ...\n- Source: https://example.com'
+            })
+        };
+
+        const speech = {
+            speak: jest.fn().mockResolvedValue(true),
+            stop: jest.fn(),
+            isSpeaking: jest.fn().mockReturnValue(false)
+        };
+
+        const interaction = {
+            channel: {
+                send: jest.fn().mockResolvedValue(undefined)
+            }
+        };
+
+        const processor = createTranscriptTurnProcessor({
+            llm,
+            speech,
+            config: { preventInterruptions: false },
+            connection: { subscribe: jest.fn() },
+            interaction,
+            mode: 'fact_check',
+            createThinkingLoop: () => ({ start: jest.fn(), stop: jest.fn() })
+        });
+
+        await processor.ingestTranscript({ transcript: 'the earth has two moons', speaker: { userId: 'u1', username: 'U1' } });
+        await processor.ingestTranscript({ transcript: 'can you fact check that?', speaker: { userId: 'u2', username: 'U2' } });
+
+        expect(llm.recordTranscript).toHaveBeenCalledTimes(2);
+        expect(llm.generateFactCheckReport).toHaveBeenCalledTimes(1);
+        expect(llm.generateReply).not.toHaveBeenCalled();
+        expect(interaction.channel.send).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('DETAILED FACT CHECK') }));
+        expect(speech.speak).toHaveBeenCalledWith(
+            expect.stringContaining('Quick fact check'),
+            expect.objectContaining({
+                onSynthesisStart: expect.any(Function),
+                onAudioStart: expect.any(Function),
+                onPlaybackEnd: expect.any(Function)
+            })
+        );
+    });
 });
 
 // ── Integration: LLM + TTS pipeline mock ───────────────────────────────────

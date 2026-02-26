@@ -30,6 +30,36 @@ function numberFromEnv(value, fallback) {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function detectFactCheckWakePhrase(text = '') {
+    const normalized = String(text || '').toLowerCase();
+    return /\bfact\s*-?\s*check(?:ing)?\b/.test(normalized);
+}
+
+function selectRecentTranscriptWindow(entries = [], {
+    maxEntries = 12,
+    maxChars = 4500
+} = {}) {
+    if (!Array.isArray(entries) || entries.length === 0) return [];
+
+    const selected = [];
+    let totalChars = 0;
+
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+        const entry = entries[index];
+        const text = String(entry?.text || '').trim();
+        if (!text) continue;
+
+        const size = text.length;
+        if (selected.length >= maxEntries) break;
+        if (selected.length > 0 && (totalChars + size) > maxChars) break;
+
+        selected.unshift(entry);
+        totalChars += size;
+    }
+
+    return selected;
+}
+
 function buildSessionConfig({ preventInterruptions }) {
     const transcriptionMode = (process.env.VOICE_CHAT_TTS_TRANSCRIPTION_MODE || 'realtime').toLowerCase();
     const realtime = transcriptionMode === 'realtime';
@@ -268,14 +298,29 @@ function createThinkingLoopController(connection) {
     };
 }
 
-function createTranscriptTurnProcessor({ llm, speech, config, connection, createThinkingLoop = createThinkingLoopController, canInterruptOverride = null }) {
+function createTranscriptTurnProcessor({
+    llm,
+    speech,
+    config,
+    connection,
+    interaction = null,
+    mode = 'assistant_chat',
+    createThinkingLoop = createThinkingLoopController,
+    canInterruptOverride = null,
+    shouldTriggerFactCheck = detectFactCheckWakePhrase,
+    maxTranscriptHistoryEntries = 120,
+    recentFactCheckMaxEntries = 12,
+    recentFactCheckMaxChars = 4500
+}) {
     const thinkingLoop = createThinkingLoop(connection);
     const interruptAfterSpeechMs = numberFromEnv(process.env.VOICE_CHAT_TTS_INTERRUPT_AFTER_SPEECH_MS, 2000);
     const turnState = {
         isRunning: false,
         pendingInference: false,
         isThinking: false,
-        speechStartedAt: null
+        speechStartedAt: null,
+        pendingFactCheck: null,
+        transcriptHistory: []
     };
 
     const markThinking = () => {
@@ -318,24 +363,72 @@ function createTranscriptTurnProcessor({ llm, speech, config, connection, create
         turnState.isRunning = true;
 
         try {
-            while (turnState.pendingInference) {
-                turnState.pendingInference = false;
-                const reply = await llm.generateReply();
-                if (!reply) {
-                    resetTurnAudioState('no-reply');
-                    continue;
-                }
+            if (mode === 'fact_check') {
+                while (turnState.pendingFactCheck) {
+                    const request = turnState.pendingFactCheck;
+                    turnState.pendingFactCheck = null;
 
-                await speech.speak(reply, {
-                    onSynthesisStart: markThinking,
-                    onAudioStart: markAudioStarted,
-                    onPlaybackEnd: () => resetTurnAudioState('playback-ended')
-                });
-                resetTurnAudioState('speak-complete');
+                    markThinking();
+                    const report = await llm.generateFactCheckReport({
+                        triggerText: request?.triggerText,
+                        transcriptEntries: request?.transcriptEntries
+                    });
+
+                    if (report?.detailedAssessment && interaction?.channel?.send) {
+                        await interaction.channel.send({ content: report.detailedAssessment });
+                    }
+
+                    const spokenSummary = report?.spokenSummary;
+                    if (!spokenSummary || !report?.detailedAssessment) {
+                        throw new Error('Fact-check report was invalid after retry.');
+                    }
+
+                    await speech.speak(spokenSummary, {
+                        onSynthesisStart: markThinking,
+                        onAudioStart: markAudioStarted,
+                        onPlaybackEnd: () => resetTurnAudioState('playback-ended')
+                    });
+                    resetTurnAudioState('speak-complete');
+                }
+            } else {
+                while (turnState.pendingInference) {
+                    turnState.pendingInference = false;
+
+                    markThinking();
+                    const reply = await llm.generateReply();
+                    if (!reply) {
+                        resetTurnAudioState('no-reply');
+                        continue;
+                    }
+
+                    await speech.speak(reply, {
+                        onSynthesisStart: markThinking,
+                        onAudioStart: markAudioStarted,
+                        onPlaybackEnd: () => resetTurnAudioState('playback-ended')
+                    });
+                    resetTurnAudioState('speak-complete');
+                }
             }
         } catch (error) {
             resetTurnAudioState('inference-error');
             console.error('[VoiceChatTTS] Transcript processing failed:', error);
+            if (mode === 'fact_check') {
+                console.error('[VoiceChatTTS] Fact-check failed after retry. Disconnecting bot.');
+                try {
+                    await speech.speak('There was an error while fact-checking, so I will disconnect now. Please try again.', {
+                        forceNoInterruptions: true,
+                        onSynthesisStart: markThinking,
+                        onAudioStart: markAudioStarted,
+                        onPlaybackEnd: () => resetTurnAudioState('error-playback-ended')
+                    });
+                } catch (speakError) {
+                    console.error('[VoiceChatTTS] Failed to speak fact-check error message before disconnect:', speakError);
+                }
+                try { await llm.disconnectSession?.('fact-check-failed-after-retry'); } catch { }
+                try { connection?.destroy?.(); } catch (disconnectError) {
+                    console.error('[VoiceChatTTS] Failed to destroy voice connection after fact-check failure:', disconnectError);
+                }
+            }
         } finally {
             turnState.isRunning = false;
         }
@@ -350,6 +443,46 @@ function createTranscriptTurnProcessor({ llm, speech, config, connection, create
                     username: speaker?.username,
                     text: transcript
                 });
+
+                turnState.transcriptHistory.push({
+                    userId: speaker?.userId,
+                    username: speaker?.username,
+                    text: transcript,
+                    timestamp: Date.now()
+                });
+                if (turnState.transcriptHistory.length > maxTranscriptHistoryEntries) {
+                    turnState.transcriptHistory.splice(0, turnState.transcriptHistory.length - maxTranscriptHistoryEntries);
+                }
+
+                if (mode === 'fact_check') {
+                    if (!shouldTriggerFactCheck(transcript)) {
+                        return;
+                    }
+
+                    const transcriptEntries = selectRecentTranscriptWindow(turnState.transcriptHistory, {
+                        maxEntries: recentFactCheckMaxEntries,
+                        maxChars: recentFactCheckMaxChars
+                    });
+
+                    turnState.pendingFactCheck = {
+                        triggerText: transcript,
+                        transcriptEntries
+                    };
+
+                    if (!turnState.isRunning) {
+                        await runPendingInference();
+                        return;
+                    }
+
+                    if (turnState.isThinking) {
+                        return;
+                    }
+
+                    if (evaluateInterrupt()) {
+                        speech.stop('fact-check-interrupt-post-window');
+                    }
+                    return;
+                }
 
                 if (!turnState.isRunning) {
                     turnState.pendingInference = true;
@@ -379,6 +512,9 @@ function createTranscriptTurnProcessor({ llm, speech, config, connection, create
         },
         stopThinking(reason = 'cleanup') {
             resetTurnAudioState(reason);
+        },
+        getTranscriptHistory() {
+            return [...turnState.transcriptHistory];
         }
     };
 }
@@ -638,7 +774,7 @@ function flushTranscript(audioState, onTranscript) {
     onTranscript?.({ transcript, speaker: audioState.lastSpeaker });
 }
 
-async function startVoiceChatTTS({ interaction, channel, preventInterruptions = false }) {
+async function startVoiceChatTTS({ interaction, channel, preventInterruptions = false, mode = 'assistant_chat', startupAnnouncement = null }) {
     const config = buildSessionConfig({ preventInterruptions });
     const audioState = { activeSpeakers: new Map(), partialTranscript: '', lastSpeaker: null };
     const session = { connection: null, transcription: null, detachAudio: null };
@@ -674,7 +810,12 @@ async function startVoiceChatTTS({ interaction, channel, preventInterruptions = 
         llm,
         speech,
         config: config.audio,
-        connection: session.connection
+        connection: session.connection,
+        interaction,
+        mode,
+        maxTranscriptHistoryEntries: numberFromEnv(process.env.VOICE_FACT_CHECK_HISTORY_MAX_ENTRIES, 120),
+        recentFactCheckMaxEntries: numberFromEnv(process.env.VOICE_FACT_CHECK_RECENT_MAX_ENTRIES, 12),
+        recentFactCheckMaxChars: numberFromEnv(process.env.VOICE_FACT_CHECK_RECENT_MAX_CHARS, 4500)
     });
 
     const transcriptFlush = () => flushTranscript(audioState, payload => turnProcessor.ingestTranscript(payload));
@@ -722,9 +863,13 @@ async function startVoiceChatTTS({ interaction, channel, preventInterruptions = 
 
     try {
         state.setVoiceChatShutdownStatus(false);
-        const greeting = await llm.generateGreeting();
-        if (greeting) {
-            await speech.speak(greeting, { forceNoInterruptions: true });
+        if (startupAnnouncement && String(startupAnnouncement).trim()) {
+            await speech.speak(String(startupAnnouncement).trim(), { forceNoInterruptions: true });
+        } else {
+            const greeting = await llm.generateGreeting();
+            if (greeting) {
+                await speech.speak(greeting, { forceNoInterruptions: true });
+            }
         }
     } catch (error) {
         console.error('[VoiceChatTTS] Failed to deliver greeting:', error);
@@ -812,6 +957,8 @@ module.exports = {
         createThinkingPcmStream,
         createThinkingLoopController,
         createTranscriptTurnProcessor,
+        detectFactCheckWakePhrase,
+        selectRecentTranscriptWindow,
         scheduleInterruption
     }
 };

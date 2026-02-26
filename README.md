@@ -45,6 +45,9 @@
 - /voice-chat-tts
   - Just like /voice-chat, but uses speech to text, sent to an LLM, then the voice response is generated using text to speech in realtime
   - Can send structured outputs (like code blocks and long lists) to the same Discord text channel when the model determines written formatting is better than spoken output
+- /voice-fact-check
+  - Joins a voice channel, continuously transcribes conversation, and waits for users to ask for fact-checks in natural speech (for example: "can you fact check that?")
+  - On trigger, analyzes the most recent discussion window, speaks a short clarification result, and always posts a detailed assessment with source links in the text channel
 - /ad-lib-story
   - Generates a Madlibs-style story (optionally guided by your prompt) and sends a modal form for you to fill in placeholders before returning the final story
 
@@ -146,6 +149,11 @@
 - VOICE_CHAT_TTS_LLM_BACKEND: backend type for LLM processing sdk (completions/responses)
 - VOICE_CHAT_TTS_REASONING_LEVEL: reasoning level for LLM (minimal/standard/extended)
 - VOICE_CHAT_TTS_THINKING_SOUND_PATH: optional path to MP3 played during TTS generation latency (default: Outputs/thinking-sounds.mp3)
+- OPENAI_VOICE_FACT_CHECK_INSTRUCTIONS: system instructions used for /voice-fact-check verification behavior
+- OPENAI_VOICE_FACT_CHECK_GREETING: startup announcement for /voice-fact-check sessions
+- VOICE_FACT_CHECK_HISTORY_MAX_ENTRIES: rolling transcript entries retained in memory for fact-check context
+- VOICE_FACT_CHECK_RECENT_MAX_ENTRIES: max recent transcript entries included in a fact-check request
+- VOICE_FACT_CHECK_RECENT_MAX_CHARS: max total transcript characters included when preparing fact-check context
 
 [Qwen3-TTS Settings (via Replicate)]
 - REPLICATE_API_TOKEN: API token for Replicate (required for Qwen3-TTS)
