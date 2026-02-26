@@ -15,6 +15,19 @@ const { playbackState } = require('../voiceGlobalState.js');
 const PROVIDER_NAME = 'qwen3tts';
 const MODEL_ID = 'qwen/qwen3-tts';
 
+function requireEnvVar(name, { allowEmpty = false } = {}) {
+    const value = process.env[name];
+    if (value === undefined || value === null) {
+        throw new Error(`[TTS:Qwen3] Missing required environment variable: ${name}`);
+    }
+
+    if (!allowEmpty && String(value).trim() === '') {
+        throw new Error(`[TTS:Qwen3] Environment variable ${name} cannot be empty`);
+    }
+
+    return value;
+}
+
 // Available preset speakers for custom_voice mode
 const PRESET_SPEAKERS = [
     'Aiden', 'Aria', 'Bella', 'Callum', 'Charlotte', 'Dylan', 'Ella', 'Grace',
@@ -39,8 +52,8 @@ function getReplicateClient() {
  * @returns {Object} Input parameters for Replicate
  */
 function buildInputParams(text, options = {}) {
-    const mode = process.env.QWEN3_TTS_MODE || 'custom_voice';
-    const language = process.env.QWEN3_TTS_LANGUAGE || 'auto';
+    const mode = requireEnvVar('QWEN3_TTS_MODE');
+    const language = requireEnvVar('QWEN3_TTS_LANGUAGE');
     
     const input = {
         text: text,
@@ -57,10 +70,9 @@ function buildInputParams(text, options = {}) {
     switch (mode) {
         case 'custom_voice':
             // Use preset speaker
-            input.speaker = options.speaker || process.env.QWEN3_TTS_SPEAKER || 'Aiden';
+            input.speaker = options.speaker || requireEnvVar('QWEN3_TTS_SPEAKER');
             if (!PRESET_SPEAKERS.includes(input.speaker)) {
-                console.warn(`[TTS:Qwen3] Unknown speaker "${input.speaker}", defaulting to Aiden`);
-                input.speaker = 'Aiden';
+                throw new Error(`[TTS:Qwen3] Invalid QWEN3_TTS_SPEAKER: ${input.speaker}`);
             }
             break;
 
@@ -88,9 +100,7 @@ function buildInputParams(text, options = {}) {
             break;
 
         default:
-            console.warn(`[TTS:Qwen3] Unknown mode "${mode}", defaulting to custom_voice`);
-            input.mode = 'custom_voice';
-            input.speaker = 'Aiden';
+            throw new Error(`[TTS:Qwen3] Invalid QWEN3_TTS_MODE: ${mode}`);
     }
 
     return input;

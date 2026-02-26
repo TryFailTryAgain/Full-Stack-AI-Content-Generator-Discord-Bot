@@ -1,6 +1,8 @@
 /*
 * llmHandler.js
-* Minimal LLM helper for the voice chat loop
+* Pure LLM conversation inference for the voice chat loop.
+* Handles prompt/reply cycles, tool calling, and message conversion.
+* Fact-check logic lives in factCheckHandler.js.
 */
 const { AttachmentBuilder } = require('discord.js');
 const { OpenAI } = require('openai');
@@ -34,26 +36,19 @@ const toolMap = {
 };
 
 const defaultSystemPrompt = 'You are a voice assistant. Keep replies concise for speech.';
-const defaultFactCheckSystemPrompt = 'You are a fact-checking assistant for a live Discord voice conversation. Verify claims using web search before concluding. Keep outputs concise and to the point. The spoken portion is synthesized to voice, so make it natural for TTS.';
-const factCheckStructuredOutputSchema = {
-    name: 'voice_fact_check_result',
-    strict: true,
-    schema: {
-        type: 'object',
-        properties: {
-            spoken_summary: {
-                type: 'string',
-                description: 'Short, TTS-friendly spoken summary (2-3 sentences max).'
-            },
-            detailed_assessment: {
-                type: 'string',
-                description: 'Concise markdown assessment with TRUE/FALSE/UNCERTAIN labels and source links.'
-            }
-        },
-        additionalProperties: false,
-        required: ['spoken_summary', 'detailed_assessment']
+
+function requireEnvVar(name, { allowEmpty = false } = {}) {
+    const value = process.env[name];
+    if (value === undefined || value === null) {
+        throw new Error(`[LLM] Missing required environment variable: ${name}`);
     }
-};
+
+    if (!allowEmpty && String(value).trim() === '') {
+        throw new Error(`[LLM] Environment variable ${name} cannot be empty`);
+    }
+
+    return value;
+}
 
 function normalizeBackend(value) {
     const normalized = String(value || '').trim().toLowerCase();
@@ -117,16 +112,24 @@ async function handleToolCalls({ toolCalls = [], interaction, state }) {
 }
 
 function createLLMHandler({ interaction, config = {}, ws = null, discordConnection = null }) {
+    const maxTokens = config.maxTokens === 'inf'
+        ? undefined
+        : Number.parseInt(String(config.maxTokens), 10);
+
+    if (config.maxTokens !== 'inf' && !Number.isFinite(maxTokens)) {
+        throw new Error(`[LLM] Invalid maxTokens config value: ${config.maxTokens}`);
+    }
+
     const llmConfig = {
         backend: normalizeBackend(config.backend),
         model: config.model,
-        maxTokens: config.maxTokens === 'inf' ? undefined : parseInt(config.maxTokens || '400', 10),
+        maxTokens,
         reasoningLevel: config.reasoningLevel || null,
         systemPrompt: config.systemPrompt || defaultSystemPrompt
     };
     const client = new OpenAI({
-        apiKey: process.env.API_KEY_OPENAI_CHAT,
-        baseURL: process.env.ADVCONF_OPENAI_CHAT_BASE_URL || 'https://api.openai.com/v1'
+        apiKey: requireEnvVar('API_KEY_OPENAI_CHAT'),
+        baseURL: requireEnvVar('ADVCONF_OPENAI_CHAT_BASE_URL')
     });
 
     const voiceToolMap = {
@@ -143,90 +146,6 @@ function createLLMHandler({ interaction, config = {}, ws = null, discordConnecti
         messages: [{ role: 'system', content: llmConfig.systemPrompt }],
         voiceToolMap
     };
-
-    async function generateFactCheckReport({ triggerText = '', transcriptEntries = [] } = {}) {
-        const formattedTranscript = formatTranscriptEntries(transcriptEntries);
-        const factCheckSystemPrompt = process.env.OPENAI_VOICE_FACT_CHECK_INSTRUCTIONS || defaultFactCheckSystemPrompt;
-        const model = llmConfig.model || process.env.OPENAI_TTS_LLM_MODEL || process.env.CHAT_MODEL || 'gpt-5-nano';
-
-        const payload = {
-            model,
-            input: [
-                {
-                    role: 'system',
-                    content: [{ type: 'input_text', text: factCheckSystemPrompt }]
-                },
-                {
-                    role: 'user',
-                    content: [{
-                        type: 'input_text',
-                        text: [
-                            'A user asked for a fact-check in a voice conversation.',
-                            'Use web search to verify claims from the discussion excerpt.',
-                            'If evidence conflicts, mark as uncertain.',
-                            'Keep both sections concise and direct.',
-                            'Return output that matches the required JSON schema exactly.',
-                            'spoken_summary must be optimized for spoken TTS output, short and to the point.',
-                            'detailed_assessment must be concise markdown bullets with source links but can allow for more nuanced explanations if necessary.',
-                            `Wake phrase context: ${String(triggerText || '').trim() || 'N/A'}`,
-                            '',
-                            'Discussion excerpt to fact-check:',
-                            formattedTranscript || 'No transcript provided.'
-                        ].join('\n')
-                    }]
-                }
-            ],
-            tools: [{ type: 'web_search' }],
-            tool_choice: 'auto',
-            text: {
-                format: {
-                    type: 'json_schema',
-                    ...factCheckStructuredOutputSchema
-                }
-            },
-            store: false
-        };
-
-        let lastError = null;
-        for (let attempt = 1; attempt <= 2; attempt += 1) {
-            try {
-                const response = await state.client.responses.create(payload);
-                const refusal = extractResponseRefusal(response);
-                if (refusal) {
-                    throw new Error(`Fact-check response refused: ${refusal}`);
-                }
-
-                const parsed = parseFactCheckStructuredOutput(response);
-                if (parsed.spokenSummary && parsed.detailedAssessment) {
-                    return {
-                        spokenSummary: parsed.spokenSummary,
-                        detailedAssessment: parsed.detailedAssessment
-                    };
-                }
-
-                lastError = new Error('Fact-check response missing SPOKEN_SUMMARY or DETAILED_ASSESSMENT.');
-                console.error(`[LLM] Fact-check attempt ${attempt} failed validation:`, parsed.rawText || '[empty-response]');
-            } catch (error) {
-                lastError = error;
-                console.error(`[LLM] Fact-check attempt ${attempt} failed:`, error);
-            }
-        }
-
-        throw lastError || new Error('Fact-check failed after retry.');
-    }
-
-    async function disconnectSession(reason = 'fact-check-failure') {
-        try {
-            const result = await disconnect_voice_chat_tool(ws, discordConnection);
-            if (process.env.ADVCONF_OPENAI_VOICE_CHAT_SYSTEM_LOGGING === 'true') {
-                console.log(`[LLM] disconnectSession invoked (${reason}):`, result);
-            }
-            return result;
-        } catch (error) {
-            console.error(`[LLM] disconnectSession failed (${reason}):`, error);
-            return null;
-        }
-    }
 
     function getTools() {
         return [toolDef_generateImage, toolDef_disconnectVoiceChat, toolDef_sendTextToChannel].filter(Boolean);
@@ -356,77 +275,8 @@ function createLLMHandler({ interaction, config = {}, ws = null, discordConnecti
         generateGreeting,
         handleTranscript,
         recordTranscript,
-        generateReply,
-        generateFactCheckReport,
-        disconnectSession
+        generateReply
     };
-}
-
-function formatTranscriptEntries(entries = []) {
-    if (!Array.isArray(entries) || !entries.length) return '';
-    return entries
-        .map((entry) => {
-            const speaker = entry?.username || entry?.userId || 'Unknown Speaker';
-            const text = String(entry?.text || '').trim();
-            if (!text) return '';
-            return `${speaker}: ${text}`;
-        })
-        .filter(Boolean)
-        .join('\n');
-}
-
-function parseFactCheckStructuredOutput(response) {
-    const rawText = extractResponseTextFromOutput(response).trim();
-    if (!rawText) {
-        return { spokenSummary: null, detailedAssessment: null, rawText: '' };
-    }
-
-    let parsed;
-    try {
-        parsed = JSON.parse(rawText);
-    } catch (error) {
-        throw new Error(`Fact-check structured output was not valid JSON: ${error.message}`);
-    }
-
-    const spokenSummary = typeof parsed?.spoken_summary === 'string' ? parsed.spoken_summary.trim() : '';
-    const detailedAssessment = typeof parsed?.detailed_assessment === 'string' ? parsed.detailed_assessment.trim() : '';
-
-    return {
-        spokenSummary: spokenSummary || null,
-        detailedAssessment: detailedAssessment || null,
-        rawText
-    };
-}
-
-function extractResponseRefusal(response) {
-    const outputItems = Array.isArray(response?.output) ? response.output : [];
-    for (const item of outputItems) {
-        if (item?.type !== 'message' || !Array.isArray(item.content)) continue;
-        for (const contentItem of item.content) {
-            if (contentItem?.type === 'refusal' && typeof contentItem.refusal === 'string' && contentItem.refusal.trim()) {
-                return contentItem.refusal.trim();
-            }
-        }
-    }
-    return null;
-}
-
-function extractResponseTextFromOutput(response) {
-    if (typeof response?.output_text === 'string' && response.output_text.trim()) {
-        return response.output_text;
-    }
-
-    const outputItems = Array.isArray(response?.output) ? response.output : [];
-    const chunks = [];
-    for (const item of outputItems) {
-        if (item?.type !== 'message' || !Array.isArray(item.content)) continue;
-        for (const contentItem of item.content) {
-            if (contentItem?.type === 'output_text' && typeof contentItem.text === 'string') {
-                chunks.push(contentItem.text);
-            }
-        }
-    }
-    return chunks.join('\n').trim();
 }
 
 function normalizeToolsForResponses(tools = []) {

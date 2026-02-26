@@ -28,12 +28,14 @@ const DEFAULT_PROVIDER = 'openai';
  * @returns {Object} Provider module with synthesizeAndPlay function
  */
 function getProvider(providerName) {
-    const name = (providerName || DEFAULT_PROVIDER).toLowerCase().trim();
+    const name = String(providerName || '').toLowerCase().trim();
+    if (!name) {
+        throw new Error('[TTS] Provider name is required');
+    }
     const provider = providers[name];
     
     if (!provider) {
-        console.warn(`[TTS] Unknown provider "${providerName}", falling back to ${DEFAULT_PROVIDER}`);
-        return providers[DEFAULT_PROVIDER];
+        throw new Error(`[TTS] Unknown provider "${providerName}"`);
     }
     
     return provider;

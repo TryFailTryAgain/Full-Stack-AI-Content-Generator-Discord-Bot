@@ -9,6 +9,14 @@
 const { playbackState } = require('./voiceGlobalState.js');
 const { getProvider, getAvailableProviders, DEFAULT_PROVIDER } = require('./tts_providers/index.js');
 
+function requireEnvVar(name) {
+    const value = process.env[name];
+    if (value === undefined || value === null || String(value).trim() === '') {
+        throw new Error(`[TTS] Missing required environment variable: ${name}`);
+    }
+    return value;
+}
+
 // Cache the current provider to avoid repeated lookups
 let cachedProvider = null;
 let cachedProviderName = null;
@@ -19,7 +27,7 @@ let cachedProviderName = null;
  * @returns {Object} Provider module
  */
 function getCurrentProvider(providerOverride) {
-    const requestedProvider = providerOverride || process.env.VOICE_CHAT_TTS_PROVIDER || DEFAULT_PROVIDER;
+    const requestedProvider = String(providerOverride || requireEnvVar('VOICE_CHAT_TTS_PROVIDER')).trim().toLowerCase();
     
     // Return cached provider if it matches
     if (cachedProvider && cachedProviderName === requestedProvider) {
@@ -94,5 +102,6 @@ module.exports = {
     isPlaybackActive,
     resetProviderCache,
     listProviders,
-    getCurrentProvider
+    getCurrentProvider,
+    DEFAULT_PROVIDER
 };

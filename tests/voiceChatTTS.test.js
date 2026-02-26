@@ -307,6 +307,8 @@ const {
     send_text_to_channel_tool,
     splitForDiscord,
 } = require('../functions/tools/sendTextToChannelTool.js');
+const { createTranscriptTurnProcessor, createThinkingLoopController, createThinkingPcmStream } = require('../functions/voice_chat_tts/turnProcessor.js');
+const { detectFactCheckWakePhrase, selectRecentTranscriptWindow, createFactCheckMode, createAssistantChatMode } = require('../functions/voice_chat_tts/factCheckHandler.js');
 
 // ── voiceGlobalState (TTS) ─────────────────────────────────────────────────
 
@@ -374,14 +376,13 @@ describe('tts_providers/index', () => {
         expect(providerIndex.getProvider('qwen').name).toBe('qwen3tts');
     });
 
-    test('getProvider falls back to openai for unknown provider', () => {
-        const provider = providerIndex.getProvider('nonexistent');
-        expect(provider.name).toBe('openai');
+    test('getProvider throws for unknown provider', () => {
+        expect(() => providerIndex.getProvider('nonexistent')).toThrow('Unknown provider');
     });
 
-    test('getProvider handles null/undefined', () => {
-        expect(providerIndex.getProvider(null).name).toBe('openai');
-        expect(providerIndex.getProvider(undefined).name).toBe('openai');
+    test('getProvider throws for null/undefined', () => {
+        expect(() => providerIndex.getProvider(null)).toThrow('Provider name is required');
+        expect(() => providerIndex.getProvider(undefined)).toThrow('Provider name is required');
     });
 
     test('getAvailableProviders excludes aliases', () => {
@@ -416,8 +417,8 @@ describe('ttsStreamer', () => {
 
     test('getCurrentProvider returns default provider from env', () => {
         const provider = ttsStreamer.getCurrentProvider();
-        // Returns whatever VOICE_CHAT_TTS_PROVIDER env var is set to (or 'openai' if unset)
-        const expectedName = (process.env.VOICE_CHAT_TTS_PROVIDER || 'openai').toLowerCase();
+        // Returns whatever VOICE_CHAT_TTS_PROVIDER env var is set to
+        const expectedName = (process.env.VOICE_CHAT_TTS_PROVIDER).toLowerCase();
         const resolvedProvider = providerIndex.getProvider(expectedName);
         expect(provider.name).toBe(resolvedProvider.name);
     });
@@ -891,9 +892,6 @@ describe('voice-chat-tts helpers', () => {
     });
 
     test('thinking-phase transcripts are history-only and do not auto-queue next inference', async () => {
-        const mod = require('../functions/voice_chat_tts/voice-chat-tts.js');
-        const { createTranscriptTurnProcessor } = mod.__testables;
-
         const llm = {
             recordTranscript: jest.fn().mockResolvedValue('ok'),
             generateReply: jest.fn().mockResolvedValue('assistant-reply-1')
@@ -919,10 +917,11 @@ describe('voice-chat-tts helpers', () => {
         };
 
         const processor = createTranscriptTurnProcessor({
-            llm,
+            recordTranscript: llm.recordTranscript,
             speech,
             config: { preventInterruptions: false },
             connection: { subscribe: jest.fn() },
+            modeHandler: createAssistantChatMode(llm),
             createThinkingLoop: () => ({ start: jest.fn(), stop: jest.fn() })
         });
 
@@ -939,8 +938,6 @@ describe('voice-chat-tts helpers', () => {
     });
 
     test('new invocation after speech interrupt window queues follow-up generation', async () => {
-        const mod = require('../functions/voice_chat_tts/voice-chat-tts.js');
-        const { createTranscriptTurnProcessor } = mod.__testables;
 
         const llm = {
             recordTranscript: jest.fn().mockResolvedValue('ok'),
@@ -972,10 +969,11 @@ describe('voice-chat-tts helpers', () => {
         };
 
         const processor = createTranscriptTurnProcessor({
-            llm,
+            recordTranscript: llm.recordTranscript,
             speech,
             config: { preventInterruptions: false },
             connection: { subscribe: jest.fn() },
+            modeHandler: createAssistantChatMode(llm),
             createThinkingLoop: () => ({ start: jest.fn(), stop: jest.fn() }),
             canInterruptOverride: () => true
         });
@@ -996,8 +994,6 @@ describe('voice-chat-tts helpers', () => {
     });
 
     test('thinking loop uses MP3 file when Outputs/thinking-sounds.mp3 exists', () => {
-        const mod = require('../functions/voice_chat_tts/voice-chat-tts.js');
-        const { createThinkingLoopController } = mod.__testables;
         const fsModule = require('fs');
         const childProc = require('child_process');
         const voice = require('@discordjs/voice');
@@ -1027,8 +1023,6 @@ describe('voice-chat-tts helpers', () => {
     });
 
     test('thinking loop falls back to synthetic tone when MP3 file is missing', () => {
-        const mod = require('../functions/voice_chat_tts/voice-chat-tts.js');
-        const { createThinkingLoopController } = mod.__testables;
         const fsModule = require('fs');
         const childProc = require('child_process');
         const voice = require('@discordjs/voice');
@@ -1055,8 +1049,6 @@ describe('voice-chat-tts helpers', () => {
     });
 
     test('detectFactCheckWakePhrase matches phrase inside larger sentence', () => {
-        const mod = require('../functions/voice_chat_tts/voice-chat-tts.js');
-        const { detectFactCheckWakePhrase } = mod.__testables;
 
         expect(detectFactCheckWakePhrase('can you fact check that claim please')).toBe(true);
         expect(detectFactCheckWakePhrase('we should do a FACT-CHECK now')).toBe(true);
@@ -1064,13 +1056,11 @@ describe('voice-chat-tts helpers', () => {
     });
 
     test('fact_check mode only runs LLM on wake phrase and posts detailed text output', async () => {
-        const mod = require('../functions/voice_chat_tts/voice-chat-tts.js');
-        const { createTranscriptTurnProcessor } = mod.__testables;
-
         const llm = {
             recordTranscript: jest.fn().mockResolvedValue('ok'),
-            generateReply: jest.fn().mockResolvedValue('assistant-reply-should-not-be-used'),
-            generateFactCheckReport: jest.fn().mockResolvedValue({
+        };
+        const mockFactCheckHandler = {
+            generateReport: jest.fn().mockResolvedValue({
                 spokenSummary: 'Quick fact check: that statement is inaccurate.',
                 detailedAssessment: 'DETAILED FACT CHECK\n- Claim: ...\n- Source: https://example.com'
             })
@@ -1089,12 +1079,11 @@ describe('voice-chat-tts helpers', () => {
         };
 
         const processor = createTranscriptTurnProcessor({
-            llm,
+            recordTranscript: llm.recordTranscript,
             speech,
             config: { preventInterruptions: false },
             connection: { subscribe: jest.fn() },
-            interaction,
-            mode: 'fact_check',
+            modeHandler: createFactCheckMode({ factCheckHandler: mockFactCheckHandler, interaction }),
             createThinkingLoop: () => ({ start: jest.fn(), stop: jest.fn() })
         });
 
@@ -1102,8 +1091,7 @@ describe('voice-chat-tts helpers', () => {
         await processor.ingestTranscript({ transcript: 'can you fact check that?', speaker: { userId: 'u2', username: 'U2' } });
 
         expect(llm.recordTranscript).toHaveBeenCalledTimes(2);
-        expect(llm.generateFactCheckReport).toHaveBeenCalledTimes(1);
-        expect(llm.generateReply).not.toHaveBeenCalled();
+        expect(mockFactCheckHandler.generateReport).toHaveBeenCalledTimes(1);
         expect(interaction.channel.send).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('DETAILED FACT CHECK') }));
         expect(speech.speak).toHaveBeenCalledWith(
             expect.stringContaining('Quick fact check'),

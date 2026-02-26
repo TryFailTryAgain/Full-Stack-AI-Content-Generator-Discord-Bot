@@ -10,6 +10,19 @@ const { playbackState } = require('../voiceGlobalState.js');
 
 const PROVIDER_NAME = 'openai';
 
+function requireEnvVar(name, { allowEmpty = false } = {}) {
+    const value = process.env[name];
+    if (value === undefined || value === null) {
+        throw new Error(`[TTS:OpenAI] Missing required environment variable: ${name}`);
+    }
+
+    if (!allowEmpty && String(value).trim() === '') {
+        throw new Error(`[TTS:OpenAI] Environment variable ${name} cannot be empty`);
+    }
+
+    return value;
+}
+
 /**
  * Synthesizes text to speech using OpenAI's TTS API and streams to Discord
  * @param {string} text - Text to synthesize
@@ -27,8 +40,8 @@ async function synthesizeAndPlay(text, connection, options = {}) {
         try { playbackState.player.stop(); } catch { }
     }
 
-    const model = process.env.OPENAI_TTS_MODEL || 'gpt-4o-mini-tts';
-    const chosenVoice = voice || process.env.OPENAI_TTS_VOICE || 'sage';
+    const model = requireEnvVar('OPENAI_TTS_MODEL');
+    const chosenVoice = voice || requireEnvVar('OPENAI_TTS_VOICE');
     const instructions = voiceDetails || process.env.OPENAI_TTS_INSTRUCTIONS;
     options.onSynthesisStart?.({ provider: PROVIDER_NAME });
 
@@ -43,7 +56,7 @@ async function synthesizeAndPlay(text, connection, options = {}) {
         format: 'wav'
     }, {
         headers: {
-            'Authorization': `Bearer ${process.env.API_KEY_OPENAI_CHAT}`,
+            'Authorization': `Bearer ${requireEnvVar('API_KEY_OPENAI_CHAT')}`,
             'Content-Type': 'application/json'
         },
         responseType: 'stream'
