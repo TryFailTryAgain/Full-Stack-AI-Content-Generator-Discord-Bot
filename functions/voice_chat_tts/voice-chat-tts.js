@@ -90,7 +90,11 @@ function buildSessionConfig({ preventInterruptions }) {
             maxTokens: requireEnvVar('VOICE_CHAT_TTS_MAX_TOKENS'),
             reasoningLevel: requireEnvVar('VOICE_CHAT_TTS_REASONING_LEVEL'),
             systemPrompt: requireEnvVar('OPENAI_VOICE_CHAT_TTS_INSTRUCTIONS'),
-            maxMessages: requireEnvVar('VOICE_CHAT_TTS_CONVERSATION_MAX_MESSAGES')
+            maxMessages: requireEnvVar('VOICE_CHAT_TTS_CONVERSATION_MAX_MESSAGES'),
+            factCheck: {
+                model: String(process.env.OPENAI_VOICE_TTS_FACT_CHECK_LLM_MODEL || '').trim() || requireEnvVar('OPENAI_TTS_LLM_MODEL'),
+                reasoningLevel: String(process.env.VOICE_FACT_CHECK_REASONING_LEVEL || '').trim() || requireEnvVar('VOICE_CHAT_TTS_REASONING_LEVEL')
+            }
         }
     };
 }
@@ -139,7 +143,10 @@ async function startVoiceChatTTS({ interaction, channel, preventInterruptions = 
     // Create mode-specific handler for the turn processor
     let modeHandler;
     if (mode === 'fact_check') {
-        const factCheck = createFactCheckHandler({ model: config.llm.model });
+        const factCheck = createFactCheckHandler({
+            model: config.llm.factCheck.model,
+            reasoningLevel: config.llm.factCheck.reasoningLevel
+        });
         modeHandler = createFactCheckMode({
             factCheckHandler: factCheck,
             interaction,

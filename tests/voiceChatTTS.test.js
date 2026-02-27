@@ -308,7 +308,13 @@ const {
     splitForDiscord,
 } = require('../functions/tools/sendTextToChannelTool.js');
 const { createTranscriptTurnProcessor, createThinkingLoopController, createThinkingPcmStream } = require('../functions/voice_chat_tts/turnProcessor.js');
-const { detectFactCheckWakePhrase, selectRecentTranscriptWindow, createFactCheckMode, createAssistantChatMode } = require('../functions/voice_chat_tts/factCheckHandler.js');
+const {
+    detectFactCheckWakePhrase,
+    selectRecentTranscriptWindow,
+    createFactCheckMode,
+    createAssistantChatMode,
+    createFactCheckHandler
+} = require('../functions/voice_chat_tts/factCheckHandler.js');
 
 // ── voiceGlobalState (TTS) ─────────────────────────────────────────────────
 
@@ -1101,6 +1107,65 @@ describe('voice-chat-tts helpers', () => {
                 onPlaybackEnd: expect.any(Function)
             })
         );
+    });
+
+    test('createFactCheckHandler uses custom model and reasoning level', async () => {
+        mockResponsesCreate.mockResolvedValueOnce({
+            output_text: JSON.stringify({
+                spoken_summary: 'Summary',
+                detailed_assessment: 'Assessment'
+            }),
+            output: [{
+                type: 'message',
+                content: [{
+                    type: 'output_text',
+                    text: JSON.stringify({
+                        spoken_summary: 'Summary',
+                        detailed_assessment: 'Assessment'
+                    })
+                }]
+            }]
+        });
+
+        const handler = createFactCheckHandler({ model: 'gpt-5', reasoningLevel: 'extended' });
+        await handler.generateReport({
+            triggerText: 'fact check this',
+            transcriptEntries: [{ username: 'User', text: 'Sample claim' }]
+        });
+
+        expect(mockResponsesCreate).toHaveBeenCalled();
+        const payload = mockResponsesCreate.mock.calls.at(-1)[0];
+        expect(payload.model).toBe('gpt-5');
+        expect(payload.reasoning).toEqual({ effort: 'extended' });
+    });
+
+    test('createFactCheckHandler omits reasoning when not provided', async () => {
+        mockResponsesCreate.mockResolvedValueOnce({
+            output_text: JSON.stringify({
+                spoken_summary: 'Summary',
+                detailed_assessment: 'Assessment'
+            }),
+            output: [{
+                type: 'message',
+                content: [{
+                    type: 'output_text',
+                    text: JSON.stringify({
+                        spoken_summary: 'Summary',
+                        detailed_assessment: 'Assessment'
+                    })
+                }]
+            }]
+        });
+
+        const handler = createFactCheckHandler({ model: 'gpt-5' });
+        await handler.generateReport({
+            triggerText: 'fact check this',
+            transcriptEntries: [{ username: 'User', text: 'Sample claim' }]
+        });
+
+        const payload = mockResponsesCreate.mock.calls.at(-1)[0];
+        expect(payload.model).toBe('gpt-5');
+        expect(payload.reasoning).toBeUndefined();
     });
 });
 

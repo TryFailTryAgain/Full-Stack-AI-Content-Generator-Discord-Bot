@@ -22,6 +22,19 @@ function requireEnvVar(name, { allowEmpty = false } = {}) {
     return value;
 }
 
+function numberFromEnv(value, envName) {
+    if (value === undefined || value === null || String(value).trim() === '') {
+        throw new Error(`[FactCheck] Missing required numeric environment variable: ${envName}`);
+    }
+
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        throw new Error(`[FactCheck] Invalid numeric environment variable ${envName}: ${value}`);
+    }
+
+    return parsed;
+}
+
 const factCheckStructuredOutputSchema = {
     name: 'voice_fact_check_result',
     strict: true,
@@ -50,10 +63,19 @@ function detectFactCheckWakePhrase(text = '') {
 }
 
 function selectRecentTranscriptWindow(entries = [], {
-    maxEntries = 12,
-    maxChars = 4500
+    maxEntries,
+    maxChars
 } = {}) {
     if (!Array.isArray(entries) || entries.length === 0) return [];
+
+    const resolvedMaxEntries = maxEntries ?? numberFromEnv(
+        process.env.VOICE_FACT_CHECK_RECENT_MAX_ENTRIES,
+        'VOICE_FACT_CHECK_RECENT_MAX_ENTRIES'
+    );
+    const resolvedMaxChars = maxChars ?? numberFromEnv(
+        process.env.VOICE_FACT_CHECK_RECENT_MAX_CHARS,
+        'VOICE_FACT_CHECK_RECENT_MAX_CHARS'
+    );
 
     const selected = [];
     let totalChars = 0;
@@ -64,8 +86,8 @@ function selectRecentTranscriptWindow(entries = [], {
         if (!text) continue;
 
         const size = text.length;
-        if (selected.length >= maxEntries) break;
-        if (selected.length > 0 && (totalChars + size) > maxChars) break;
+        if (selected.length >= resolvedMaxEntries) break;
+        if (selected.length > 0 && (totalChars + size) > resolvedMaxChars) break;
 
         selected.unshift(entry);
         totalChars += size;
@@ -149,17 +171,21 @@ function parseFactCheckStructuredOutput(response) {
  * Creates a fact-check handler with its own OpenAI client.
  * @param {Object} options
  * @param {string} [options.model] - LLM model for fact-check inference
+ * @param {string} [options.reasoningLevel] - Responses API reasoning effort for fact-check inference
  * @param {string} [options.systemPrompt] - System prompt override
  * @returns {{ generateReport: Function }}
  */
-function createFactCheckHandler({ model, systemPrompt } = {}) {
+function createFactCheckHandler({ model, reasoningLevel, systemPrompt } = {}) {
     const client = new OpenAI({
         apiKey: requireEnvVar('API_KEY_OPENAI_CHAT'),
         baseURL: requireEnvVar('ADVCONF_OPENAI_CHAT_BASE_URL')
     });
 
     const resolvedModel = model || requireEnvVar('OPENAI_TTS_LLM_MODEL');
-    const resolvedSystemPrompt = systemPrompt || requireEnvVar('OPENAI_VOICE_FACT_CHECK_INSTRUCTIONS');
+    const resolvedReasoningLevel = typeof reasoningLevel === 'string' && reasoningLevel.trim()
+        ? reasoningLevel.trim()
+        : null;
+    const resolvedSystemPrompt = systemPrompt || requireEnvVar('OPENAI_VOICE_TTS_FACT_CHECK_INSTRUCTIONS');
 
     async function generateReport({ triggerText = '', transcriptEntries = [] } = {}) {
         const formattedTranscript = formatTranscriptEntries(transcriptEntries);
@@ -201,6 +227,10 @@ function createFactCheckHandler({ model, systemPrompt } = {}) {
             },
             store: false
         };
+
+        if (resolvedReasoningLevel) {
+            payload.reasoning = { effort: resolvedReasoningLevel };
+        }
 
         let lastError = null;
         for (let attempt = 1; attempt <= 2; attempt += 1) {
@@ -245,15 +275,24 @@ function createFactCheckMode({
     interaction,
     ws = null,
     discordConnection = null,
-    recentMaxEntries = 12,
-    recentMaxChars = 4500
+    recentMaxEntries,
+    recentMaxChars
 }) {
+    const resolvedRecentMaxEntries = recentMaxEntries ?? numberFromEnv(
+        process.env.VOICE_FACT_CHECK_RECENT_MAX_ENTRIES,
+        'VOICE_FACT_CHECK_RECENT_MAX_ENTRIES'
+    );
+    const resolvedRecentMaxChars = recentMaxChars ?? numberFromEnv(
+        process.env.VOICE_FACT_CHECK_RECENT_MAX_CHARS,
+        'VOICE_FACT_CHECK_RECENT_MAX_CHARS'
+    );
+
     return {
         shouldTrigger(transcript, transcriptHistory) {
             if (!detectFactCheckWakePhrase(transcript)) return false;
             const transcriptEntries = selectRecentTranscriptWindow(transcriptHistory, {
-                maxEntries: recentMaxEntries,
-                maxChars: recentMaxChars
+                maxEntries: resolvedRecentMaxEntries,
+                maxChars: resolvedRecentMaxChars
             });
             return {
                 triggerText: transcript,

@@ -149,8 +149,10 @@
 - VOICE_CHAT_TTS_LLM_BACKEND: backend type for LLM processing sdk (completions/responses)
 - VOICE_CHAT_TTS_REASONING_LEVEL: reasoning level for LLM (minimal/standard/extended)
 - VOICE_CHAT_TTS_THINKING_SOUND_PATH: optional path to MP3 played during TTS generation latency (default: Outputs/thinking-sounds.mp3)
-- OPENAI_VOICE_FACT_CHECK_INSTRUCTIONS: system instructions used for /voice-fact-check verification behavior
-- OPENAI_VOICE_FACT_CHECK_GREETING: startup announcement for /voice-fact-check sessions
+- OPENAI_VOICE_TTS_FACT_CHECK_INSTRUCTIONS: system instructions used for /voice-fact-check verification behavior
+- OPENAI_VOICE_TTS_FACT_CHECK_GREETING: startup announcement for /voice-fact-check sessions
+- OPENAI_VOICE_TTS_FACT_CHECK_LLM_MODEL: LLM model used specifically by /voice-fact-check (falls back to OPENAI_TTS_LLM_MODEL when unset)
+- VOICE_FACT_CHECK_REASONING_LEVEL: reasoning level specifically for /voice-fact-check (falls back to VOICE_CHAT_TTS_REASONING_LEVEL when unset)
 - VOICE_FACT_CHECK_HISTORY_MAX_ENTRIES: rolling transcript entries retained in memory for fact-check context
 - VOICE_FACT_CHECK_RECENT_MAX_ENTRIES: max recent transcript entries included in a fact-check request
 - VOICE_FACT_CHECK_RECENT_MAX_CHARS: max total transcript characters included when preparing fact-check context

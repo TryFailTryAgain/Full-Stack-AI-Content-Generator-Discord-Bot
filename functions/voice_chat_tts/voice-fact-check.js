@@ -1,8 +1,20 @@
 const { startVoiceChatTTS } = require('./voice-chat-tts.js');
 
+function requireEnvVar(name, { allowEmpty = false } = {}) {
+    const value = process.env[name];
+    if (value === undefined || value === null) {
+        throw new Error(`[VoiceFactCheck] Missing required environment variable: ${name}`);
+    }
+
+    if (!allowEmpty && String(value).trim() === '') {
+        throw new Error(`[VoiceFactCheck] Environment variable ${name} cannot be empty`);
+    }
+
+    return value;
+}
+
 async function startVoiceFactCheck({ interaction, channel, preventInterruptions = false }) {
-    const startupAnnouncement = process.env.OPENAI_VOICE_FACT_CHECK_GREETING
-        || 'Fact-check mode is now active. I am transcribing this conversation. Say fact check at any time and I will verify recent spoken claims and post detailed sources in text chat.';
+    const startupAnnouncement = requireEnvVar('OPENAI_VOICE_TTS_FACT_CHECK_GREETING');
 
     return startVoiceChatTTS({
         interaction,
