@@ -1109,6 +1109,59 @@ describe('voice-chat-tts helpers', () => {
         );
     });
 
+    test('second fact-check wake includes prior assistant output in transcript context', async () => {
+        const llm = {
+            recordTranscript: jest.fn().mockResolvedValue('ok'),
+        };
+        const mockFactCheckHandler = {
+            generateReport: jest.fn()
+                .mockResolvedValueOnce({
+                    spokenSummary: 'First fact-check summary from assistant.',
+                    detailedAssessment: 'First detailed assessment'
+                })
+                .mockResolvedValueOnce({
+                    spokenSummary: 'Second fact-check summary from assistant.',
+                    detailedAssessment: 'Second detailed assessment'
+                })
+        };
+
+        const speech = {
+            speak: jest.fn().mockResolvedValue(true),
+            stop: jest.fn(),
+            isSpeaking: jest.fn().mockReturnValue(false)
+        };
+
+        const interaction = {
+            channel: {
+                send: jest.fn().mockResolvedValue(undefined)
+            }
+        };
+
+        const processor = createTranscriptTurnProcessor({
+            recordTranscript: llm.recordTranscript,
+            speech,
+            config: { preventInterruptions: false },
+            connection: { subscribe: jest.fn() },
+            modeHandler: createFactCheckMode({ factCheckHandler: mockFactCheckHandler, interaction }),
+            createThinkingLoop: () => ({ start: jest.fn(), stop: jest.fn() })
+        });
+
+        await processor.ingestTranscript({ transcript: 'the moon is made of cheese', speaker: { userId: 'u1', username: 'U1' } });
+        await processor.ingestTranscript({ transcript: 'fact check that', speaker: { userId: 'u2', username: 'U2' } });
+        await processor.ingestTranscript({ transcript: 'and what about gravity?', speaker: { userId: 'u3', username: 'U3' } });
+        await processor.ingestTranscript({ transcript: 'fact check again', speaker: { userId: 'u2', username: 'U2' } });
+
+        expect(mockFactCheckHandler.generateReport).toHaveBeenCalledTimes(2);
+
+        const secondCallArgs = mockFactCheckHandler.generateReport.mock.calls[1][0];
+        const assistantEntry = secondCallArgs.transcriptEntries.find((entry) => entry.role === 'assistant');
+
+        expect(assistantEntry).toBeDefined();
+        expect(assistantEntry.text).toContain('First fact-check summary from assistant.');
+        expect(assistantEntry.text).toContain('First detailed assessment');
+        expect(assistantEntry.source).toBe('llm');
+    });
+
     test('createFactCheckHandler uses custom model and reasoning level', async () => {
         mockResponsesCreate.mockResolvedValueOnce({
             output_text: JSON.stringify({
@@ -1166,6 +1219,45 @@ describe('voice-chat-tts helpers', () => {
         const payload = mockResponsesCreate.mock.calls.at(-1)[0];
         expect(payload.model).toBe('gpt-5');
         expect(payload.reasoning).toBeUndefined();
+    });
+
+    test('createFactCheckHandler sends transcript entries as role-based Responses input items', async () => {
+        mockResponsesCreate.mockResolvedValueOnce({
+            output_text: JSON.stringify({
+                spoken_summary: 'Summary',
+                detailed_assessment: 'Assessment'
+            }),
+            output: [{
+                type: 'message',
+                content: [{
+                    type: 'output_text',
+                    text: JSON.stringify({
+                        spoken_summary: 'Summary',
+                        detailed_assessment: 'Assessment'
+                    })
+                }]
+            }]
+        });
+
+        const handler = createFactCheckHandler({ model: 'gpt-5' });
+        await handler.generateReport({
+            triggerText: 'fact check this',
+            transcriptEntries: [
+                { role: 'user', username: 'Alice', text: 'Claim from user' },
+                { role: 'assistant', username: 'Assistant (Fact Check LLM)', text: 'Prior model output' }
+            ]
+        });
+
+        const payload = mockResponsesCreate.mock.calls.at(-1)[0];
+        const assistantItems = payload.input.filter((item) => item.role === 'assistant');
+        const userItems = payload.input.filter((item) => item.role === 'user');
+
+        expect(assistantItems.length).toBeGreaterThan(0);
+        expect(userItems.length).toBeGreaterThan(0);
+        expect(assistantItems.some((item) => item.content?.[0]?.text?.includes('Prior model output'))).toBe(true);
+        expect(userItems.some((item) => item.content?.[0]?.text?.includes('Claim from user'))).toBe(true);
+        expect(assistantItems.every((item) => item.content?.[0]?.type === 'output_text')).toBe(true);
+        expect(userItems.every((item) => item.content?.[0]?.type === 'input_text')).toBe(true);
     });
 });
 

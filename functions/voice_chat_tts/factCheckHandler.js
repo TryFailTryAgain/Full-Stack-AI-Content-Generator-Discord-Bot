@@ -102,13 +102,46 @@ function formatTranscriptEntries(entries = []) {
     if (!Array.isArray(entries) || !entries.length) return '';
     return entries
         .map((entry) => {
-            const speaker = entry?.username || entry?.userId || 'Unknown Speaker';
+            const role = String(entry?.role || '').toLowerCase();
+            const speaker = role === 'assistant'
+                ? (entry?.username || 'Assistant (LLM)')
+                : (entry?.username || entry?.userId || 'Unknown Speaker');
             const text = String(entry?.text || '').trim();
             if (!text) return '';
-            return `${speaker}: ${text}`;
+            const roleLabel = role === 'assistant' ? '[assistant]' : '[user]';
+            return `${roleLabel} ${speaker}: ${text}`;
         })
         .filter(Boolean)
         .join('\n');
+}
+
+function mapTranscriptEntryToInputItem(entry = {}) {
+    const role = String(entry?.role || '').toLowerCase() === 'assistant' ? 'assistant' : 'user';
+    const speaker = entry?.username || entry?.userId || (role === 'assistant' ? 'Assistant (LLM)' : 'Unknown Speaker');
+    const text = String(entry?.text || '').trim();
+    if (!text) return null;
+    const contentType = role === 'assistant' ? 'output_text' : 'input_text';
+
+    return {
+        role,
+        content: [{
+            type: contentType,
+            text: `${speaker}: ${text}`
+        }]
+    };
+}
+
+function buildTranscriptInputItems(entries = []) {
+    if (!Array.isArray(entries) || !entries.length) {
+        return [{
+            role: 'user',
+            content: [{ type: 'input_text', text: 'No transcript provided.' }]
+        }];
+    }
+
+    return entries
+        .map(mapTranscriptEntryToInputItem)
+        .filter(Boolean);
 }
 
 function extractResponseRefusal(response) {
@@ -188,7 +221,7 @@ function createFactCheckHandler({ model, reasoningLevel, systemPrompt } = {}) {
     const resolvedSystemPrompt = systemPrompt || requireEnvVar('OPENAI_VOICE_TTS_FACT_CHECK_INSTRUCTIONS');
 
     async function generateReport({ triggerText = '', transcriptEntries = [] } = {}) {
-        const formattedTranscript = formatTranscriptEntries(transcriptEntries);
+        const transcriptInputItems = buildTranscriptInputItems(transcriptEntries);
 
         const payload = {
             model: resolvedModel,
@@ -197,6 +230,7 @@ function createFactCheckHandler({ model, reasoningLevel, systemPrompt } = {}) {
                     role: 'system',
                     content: [{ type: 'input_text', text: resolvedSystemPrompt }]
                 },
+                ...transcriptInputItems,
                 {
                     role: 'user',
                     content: [{
@@ -210,9 +244,7 @@ function createFactCheckHandler({ model, reasoningLevel, systemPrompt } = {}) {
                             'spoken_summary must be optimized for spoken TTS output, short and to the point.',
                             'detailed_assessment must be concise markdown bullets with source links but can allow for more nuanced explanations if necessary.',
                             `Wake phrase context: ${String(triggerText || '').trim() || 'N/A'}`,
-                            '',
-                            'Discussion excerpt to fact-check:',
-                            formattedTranscript || 'No transcript provided.'
+                            'Use the transcript turns provided earlier in this request as context.'
                         ].join('\n')
                     }]
                 }
@@ -314,7 +346,20 @@ function createFactCheckMode({
                 throw new Error('Fact-check report was invalid after retry.');
             }
 
-            return { spokenText: report.spokenSummary };
+            const transcriptText = [
+                `Spoken summary: ${report.spokenSummary}`,
+                `Detailed assessment posted to chat: ${report.detailedAssessment}`
+            ].join('\n\n');
+
+            return {
+                spokenText: report.spokenSummary,
+                transcriptEntry: {
+                    role: 'assistant',
+                    source: 'llm',
+                    username: 'Assistant (Fact Check LLM)',
+                    text: transcriptText
+                }
+            };
         },
 
         async onError(error, { speech, connection, markThinking, markAudioStarted, resetTurnAudioState }) {
@@ -358,6 +403,8 @@ module.exports = {
     detectFactCheckWakePhrase,
     selectRecentTranscriptWindow,
     formatTranscriptEntries,
+    buildTranscriptInputItems,
+    mapTranscriptEntryToInputItem,
     parseFactCheckStructuredOutput,
     extractResponseRefusal,
     extractResponseTextFromOutput,

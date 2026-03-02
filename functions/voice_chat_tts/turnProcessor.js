@@ -215,7 +215,7 @@ function createThinkingLoopController(connection) {
  * @param {Object} options.connection - Discord voice connection
  * @param {Object} options.modeHandler - Strategy for inference behavior
  * @param {Function} options.modeHandler.shouldTrigger - (transcript, history) => false | context
- * @param {Function} options.modeHandler.runInference - async (context) => { spokenText }
+ * @param {Function} options.modeHandler.runInference - async (context) => { spokenText, transcriptEntry? }
  * @param {Function} [options.modeHandler.onError] - async (error, helpers) => void
  * @param {Function} [options.createThinkingLoop] - DI for thinking loop (testing)
  * @param {Function} [options.canInterruptOverride] - Override interrupt check
@@ -245,6 +245,20 @@ function createTranscriptTurnProcessor({
     const markThinking = () => {
         turnState.isThinking = true;
         thinkingLoop.start();
+    };
+
+    const appendTranscriptHistory = (entry) => {
+        if (!entry || !String(entry.text || '').trim()) return;
+
+        turnState.transcriptHistory.push({
+            ...entry,
+            text: String(entry.text).trim(),
+            timestamp: entry.timestamp || Date.now()
+        });
+
+        if (turnState.transcriptHistory.length > maxTranscriptHistoryEntries) {
+            turnState.transcriptHistory.splice(0, turnState.transcriptHistory.length - maxTranscriptHistoryEntries);
+        }
     };
 
     const markAudioStarted = () => {
@@ -294,6 +308,15 @@ function createTranscriptTurnProcessor({
                     continue;
                 }
 
+                appendTranscriptHistory({
+                    userId: result?.transcriptEntry?.userId || 'assistant-llm',
+                    username: result?.transcriptEntry?.username || 'Assistant (LLM)',
+                    role: result?.transcriptEntry?.role || 'assistant',
+                    source: result?.transcriptEntry?.source || 'llm',
+                    text: result?.transcriptEntry?.text || result.spokenText,
+                    timestamp: Date.now()
+                });
+
                 await speech.speak(result.spokenText, {
                     onSynthesisStart: markThinking,
                     onAudioStart: markAudioStarted,
@@ -328,15 +351,14 @@ function createTranscriptTurnProcessor({
                     text: transcript
                 });
 
-                turnState.transcriptHistory.push({
+                appendTranscriptHistory({
                     userId: speaker?.userId,
                     username: speaker?.username,
+                    role: 'user',
+                    source: 'stt',
                     text: transcript,
                     timestamp: Date.now()
                 });
-                if (turnState.transcriptHistory.length > maxTranscriptHistoryEntries) {
-                    turnState.transcriptHistory.splice(0, turnState.transcriptHistory.length - maxTranscriptHistoryEntries);
-                }
 
                 // Ask mode handler if this transcript should trigger inference
                 const context = modeHandler.shouldTrigger(transcript, turnState.transcriptHistory);
